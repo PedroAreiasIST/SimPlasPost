@@ -1,39 +1,30 @@
-using System.Numerics;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Layout;
-using Ab4d.SharpEngine.AvaloniaUI;
-using Ab4d.SharpEngine.Cameras;
-using Ab4d.SharpEngine.Common;
-using Ab4d.SharpEngine.Lights;
-using Ab4d.SharpEngine.Materials;
-using Ab4d.SharpEngine.Meshes;
-using Ab4d.SharpEngine.OverlayPanels;
-using Ab4d.SharpEngine.SceneNodes;
+using Avalonia.Input;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using SimPlasPost.Core.Colormap;
 using SimPlasPost.Core.Geometry;
 using SimPlasPost.Core.Models;
+using SimPlasPost.Core.Rendering;
 using SimPlasPost.Desktop.ViewModels;
+using System.Runtime.InteropServices;
 
 namespace SimPlasPost.Desktop.Controls;
 
 /// <summary>
-/// GPU-accelerated FE mesh viewport using Ab4d.SharpEngine (Vulkan).
-/// Handles millions of elements at 60fps. Built-in orbit/pan/zoom and axis triad.
+/// High-performance mesh viewport: cached geometry + parallel software rasterizer
+/// writing to WriteableBitmap. No external 3D library, no licensing.
 /// </summary>
-public class MeshViewport : Panel
+public class MeshViewport : Control
 {
+    private static readonly FontFamily SciFont = new("STIX Two Text, CMU Serif, Latin Modern Roman, Times New Roman, serif");
+    private static readonly Typeface SciBold = new(SciFont, FontStyle.Normal, FontWeight.Bold);
+
     private MainViewModel? _vm;
-    private SharpEngineSceneView? _sceneView;
-    private TargetPositionCamera? _camera;
-    private PointerCameraController? _cameraController;
-    private CameraAxisPanel? _axisPanel;
 
-    // Scene nodes (cleared and rebuilt when mesh changes)
-    private MeshModelNode? _meshNode;
-    private MultiLineNode? _edgesNode;
-
-    // Cache keys
+    // ─── Cached geometry (rebuilt only when mesh/field/deformation changes) ───
     private MeshData? _cachedMesh;
     private string? _cachedField;
     private bool _cachedShowDef;
@@ -41,147 +32,90 @@ public class MeshViewport : Panel
     private DisplayMode _cachedMode;
     private string? _cachedUserMin, _cachedUserMax;
 
+    private float[] _posX = Array.Empty<float>(); // flat position arrays for speed
+    private float[] _posY = Array.Empty<float>();
+    private float[] _posZ = Array.Empty<float>();
+    private int _nVerts;
+    private int[] _faceOffsets = Array.Empty<int>();
+    private int[] _faceVertices = Array.Empty<int>();
+    private int[] _edgePairs = Array.Empty<int>();
+    private byte[] _faceR = Array.Empty<byte>();
+    private byte[] _faceG = Array.Empty<byte>();
+    private byte[] _faceB = Array.Empty<byte>();
+
+    // ─── Frame buffer (reused) ───
+    private WriteableBitmap? _bitmap;
+    private uint[]? _pixels;
+    private float[]? _zbuf;
+    private int _bw, _bh;
+
+    // ─── Mouse ───
+    private bool _dragging, _panning;
+    private Point _lastMouse;
+
     public void SetViewModel(MainViewModel vm)
     {
-        if (_vm != null) _vm.SceneInvalidated -= OnSceneInvalidated;
+        if (_vm != null) _vm.SceneInvalidated -= OnInvalidated;
         _vm = vm;
-        _vm.SceneInvalidated += OnSceneInvalidated;
-
-        InitializeSharpEngine();
-        RebuildScene();
+        _vm.SceneInvalidated += OnInvalidated;
+        RebuildGeometry();
     }
 
-    private void InitializeSharpEngine()
+    private void OnInvalidated() => Dispatcher.UIThread.Post(() =>
     {
-        if (_sceneView != null) return;
+        if (GeometryChanged()) RebuildGeometry();
+        else InvalidateVisual();
+    });
 
-        _sceneView = new SharpEngineSceneView()
-        {
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch,
-            BackgroundColor = Avalonia.Media.Color.FromRgb(255, 255, 255),
-        };
-
-        Children.Add(_sceneView);
-
-        // Wait for scene to be ready
-        _sceneView.SceneViewInitialized += (sender, args) =>
-        {
-            SetupScene();
-            RebuildScene();
-        };
-    }
-
-    private void SetupScene()
-    {
-        if (_sceneView?.Scene == null || _sceneView.SceneView == null) return;
-
-        // Camera: orbit around target
-        _camera = new TargetPositionCamera()
-        {
-            TargetPosition = new Vector3(0, 0, 0),
-            Heading = 30,
-            Attitude = -20,
-            Distance = 4f,
-            ShowCameraLight = ShowCameraLightType.Auto,
-            ProjectionType = ProjectionTypes.Orthographic,
-            ViewWidth = 5f,
-        };
-        _sceneView.SceneView.Camera = _camera;
-
-        // Lights
-        _sceneView.Scene.Lights.Add(new AmbientLight(new Color3(0.3f, 0.3f, 0.3f)));
-        _sceneView.Scene.Lights.Add(new DirectionalLight(new Vector3(-0.3f, -1f, -0.3f)));
-
-        // Mouse controls: left-drag = rotate, right-drag = pan, wheel = zoom
-        _cameraController = new PointerCameraController(_sceneView)
-        {
-            RotateCameraConditions = PointerAndKeyboardConditions.LeftPointerButtonPressed,
-            MoveCameraConditions = PointerAndKeyboardConditions.RightPointerButtonPressed,
-            ZoomMode = CameraZoomMode.ViewCenter,
-            PointerWheelDistanceChangeFactor = 1.03f,
-        };
-
-        // Axis triad in bottom-left
-        _axisPanel = new CameraAxisPanel(_sceneView.SceneView, _camera,
-            width: 100, height: 100,
-            adjustSizeByDpiScale: true,
-            alignment: PositionTypes.BottomLeft);
-    }
-
-    private void OnSceneInvalidated()
-    {
-        Avalonia.Threading.Dispatcher.UIThread.Post(RebuildScene);
-    }
-
-    private bool NeedsRebuild() => _vm != null && (
-        _vm.MeshData != _cachedMesh ||
-        _vm.ActiveField != _cachedField ||
-        _vm.ShowDef != _cachedShowDef ||
-        _vm.DefScale != _cachedDefScale ||
+    private bool GeometryChanged() => _vm != null && (
+        _vm.MeshData != _cachedMesh || _vm.ActiveField != _cachedField ||
+        _vm.ShowDef != _cachedShowDef || _vm.DefScale != _cachedDefScale ||
         _vm.DisplayMode_ != _cachedMode ||
-        _vm.UserMin != _cachedUserMin ||
-        _vm.UserMax != _cachedUserMax);
+        _vm.UserMin != _cachedUserMin || _vm.UserMax != _cachedUserMax);
 
-    private void RebuildScene()
+    /// <summary>Expensive: extract boundary, compute colors. Called rarely.</summary>
+    private void RebuildGeometry()
     {
-        if (_vm?.MeshData == null || _sceneView?.Scene == null || _camera == null) return;
-        if (!NeedsRebuild() && _meshNode != null) return;
-
+        if (_vm?.MeshData == null) return;
         var mesh = _vm.MeshData;
         var dMode = _vm.DisplayMode_;
         _cachedMesh = mesh; _cachedField = _vm.ActiveField;
         _cachedShowDef = _vm.ShowDef; _cachedDefScale = _vm.DefScale;
         _cachedMode = dMode; _cachedUserMin = _vm.UserMin; _cachedUserMax = _vm.UserMax;
 
-        // Remove old nodes
-        if (_meshNode != null) { _sceneView.Scene.RootNode.Remove(_meshNode); _meshNode.Dispose(); _meshNode = null; }
-        if (_edgesNode != null) { _sceneView.Scene.RootNode.Remove(_edgesNode); _edgesNode.Dispose(); _edgesNode = null; }
-
         var ns = mesh.Nodes;
-
-        // Bounding box + normalize
         float mnX = float.MaxValue, mnY = float.MaxValue, mnZ = float.MaxValue;
         float mxX = float.MinValue, mxY = float.MinValue, mxZ = float.MinValue;
         for (int i = 0; i < ns.Length; i++)
         {
-            var n = ns[i];
-            mnX = Math.Min(mnX, (float)n[0]); mxX = Math.Max(mxX, (float)n[0]);
-            mnY = Math.Min(mnY, (float)n[1]); mxY = Math.Max(mxY, (float)n[1]);
-            mnZ = Math.Min(mnZ, (float)n[2]); mxZ = Math.Max(mxZ, (float)n[2]);
+            float x = (float)ns[i][0], y = (float)ns[i][1], z = (float)ns[i][2];
+            if (x < mnX) mnX = x; if (x > mxX) mxX = x;
+            if (y < mnY) mnY = y; if (y > mxY) mxY = y;
+            if (z < mnZ) mnZ = z; if (z > mxZ) mxZ = z;
         }
         float cenX = (mnX + mxX) / 2, cenY = (mnY + mxY) / 2, cenZ = (mnZ + mxZ) / 2;
         float span = Math.Max(Math.Max(mxX - mnX, mxY - mnY), Math.Max(mxZ - mnZ, 1e-6f));
         float sc = 2f / span;
 
-        // Displaced positions
         var dispField = mesh.GetDisplacementField();
-        var positions = new Vector3[ns.Length];
+        _nVerts = ns.Length;
+        _posX = new float[_nVerts]; _posY = new float[_nVerts]; _posZ = new float[_nVerts];
         float defScale = (float)_vm.DefScale;
         bool showDef = _vm.ShowDef;
-        for (int i = 0; i < ns.Length; i++)
+        for (int i = 0; i < _nVerts; i++)
         {
-            var n = ns[i];
             float dx = 0, dy = 0, dz = 0;
             if (showDef && dispField is { IsVector: true, VectorValues: not null } && i < dispField.VectorValues.Length)
-            {
-                var d = dispField.VectorValues[i];
-                dx = (float)d[0] * defScale; dy = (float)d[1] * defScale; dz = (float)d[2] * defScale;
-            }
-            positions[i] = new Vector3(
-                ((float)n[0] + dx - cenX) * sc,
-                ((float)n[1] + dy - cenY) * sc,
-                ((float)n[2] + dz - cenZ) * sc);
+            { var d = dispField.VectorValues[i]; dx = (float)d[0] * defScale; dy = (float)d[1] * defScale; dz = (float)d[2] * defScale; }
+            _posX[i] = ((float)ns[i][0] + dx - cenX) * sc;
+            _posY[i] = ((float)ns[i][1] + dy - cenY) * sc;
+            _posZ[i] = ((float)ns[i][2] + dz - cenZ) * sc;
         }
 
-        // Extract boundary faces
-        bool is3D = mesh.Dim == 3 || mesh.Elements.Any(e =>
-            FaceTable.Faces.TryGetValue(e.Type, out var ft) && ft.Dim == 3);
+        bool is3D = mesh.Dim == 3 || mesh.Elements.Any(e => FaceTable.Faces.TryGetValue(e.Type, out var ft) && ft.Dim == 3);
         var bfaces = BoundaryExtractor.Extract(mesh.Elements, is3D);
 
-        // Field values for coloring
-        double[]? fv = null;
-        double fmin = 0, fmax = 1;
+        double[]? fv = null; double fmin = 0, fmax = 1;
         if (dMode != DisplayMode.Wireframe && !string.IsNullOrEmpty(_vm.ActiveField) &&
             mesh.Fields.TryGetValue(_vm.ActiveField, out var field) && !field.IsVector)
         {
@@ -189,7 +123,7 @@ public class MeshViewport : Panel
             if (fv != null && fv.Length > 0)
             {
                 fmin = double.MaxValue; fmax = double.MinValue;
-                foreach (double v in fv) { fmin = Math.Min(fmin, v); fmax = Math.Max(fmax, v); }
+                foreach (double v in fv) { if (v < fmin) fmin = v; if (v > fmax) fmax = v; }
                 if (Math.Abs(fmax - fmin) < 1e-15) fmax = fmin + 1;
             }
         }
@@ -198,95 +132,186 @@ public class MeshViewport : Panel
         double efSpan = Math.Abs(efMax - efMin) < 1e-15 ? 1 : efMax - efMin;
         _vm.FRangeMin = fmin; _vm.FRangeMax = fmax;
 
-        // Build triangle mesh: vertices, normals, indices, per-vertex colors
-        var vertList = new List<PositionNormalTextureVertex>();
-        var indexList = new List<int>();
-        var colorList = new List<Color4>();
-        var edgePositions = new List<Vector3>();
-
-        foreach (var face in bfaces)
+        // Pack faces into flat arrays
+        int totalVerts = 0; foreach (var f in bfaces) totalVerts += f.Length;
+        var offsets = new int[bfaces.Count + 1];
+        var verts = new int[totalVerts];
+        var fr = new byte[bfaces.Count]; var fg = new byte[bfaces.Count]; var fb = new byte[bfaces.Count];
+        var edges = new List<int>();
+        int vi = 0;
+        for (int fi = 0; fi < bfaces.Count; fi++)
         {
-            // Compute face normal
-            var p0 = positions[face[0]];
-            var p1 = positions[face[1]];
-            var p2 = positions[face.Length > 2 ? face[2] : face[1]];
-            var normal = Vector3.Normalize(Vector3.Cross(p1 - p0, p2 - p0));
-            if (float.IsNaN(normal.X)) normal = Vector3.UnitY;
+            var face = bfaces[fi];
+            offsets[fi] = vi;
+            for (int j = 0; j < face.Length; j++) verts[vi++] = face[j];
 
-            // Triangulate face
-            int baseIdx = vertList.Count;
-            for (int j = 0; j < face.Length; j++)
+            if (dMode == DisplayMode.Wireframe) { fr[fi] = 255; fg[fi] = 255; fb[fi] = 255; }
+            else if (fv != null)
             {
-                int ni = face[j];
-                vertList.Add(new PositionNormalTextureVertex(positions[ni], normal, new System.Numerics.Vector2(0, 0)));
-
-                // Per-vertex color
-                Color4 col;
-                if (dMode == DisplayMode.Wireframe)
-                    col = new Color4(1f, 1f, 1f, 1f);
-                else if (fv != null && ni < fv.Length)
-                {
-                    double t = (fv[ni] - efMin) / efSpan;
-                    var (r, g, b) = TurboColormap.Sample(t);
-                    col = new Color4((float)r, (float)g, (float)b, 1f);
-                }
-                else
-                    col = new Color4(0.75f, 0.78f, 0.82f, 1f);
-                colorList.Add(col);
+                double avg = 0; for (int j = 0; j < face.Length; j++) avg += fv[face[j]]; avg /= face.Length;
+                var (r, g, b) = TurboColormap.Sample((avg - efMin) / efSpan);
+                fr[fi] = (byte)(r * 255); fg[fi] = (byte)(g * 255); fb[fi] = (byte)(b * 255);
             }
+            else { fr[fi] = 191; fg[fi] = 199; fb[fi] = 209; }
 
-            // Fan triangulation
-            for (int j = 1; j < face.Length - 1; j++)
-            {
-                indexList.Add(baseIdx);
-                indexList.Add(baseIdx + j);
-                indexList.Add(baseIdx + j + 1);
-            }
-
-            // Wireframe/plot edges
             if (dMode == DisplayMode.Wireframe || dMode == DisplayMode.Plot)
-            {
-                for (int j = 0; j < face.Length; j++)
-                {
-                    edgePositions.Add(positions[face[j]]);
-                    edgePositions.Add(positions[face[(j + 1) % face.Length]]);
-                }
-            }
+                for (int j = 0; j < face.Length; j++) { edges.Add(face[j]); edges.Add(face[(j + 1) % face.Length]); }
+        }
+        offsets[bfaces.Count] = vi;
+        _faceOffsets = offsets; _faceVertices = verts;
+        _faceR = fr; _faceG = fg; _faceB = fb;
+        _edgePairs = edges.ToArray();
+        InvalidateVisual();
+    }
+
+    protected override void OnSizeChanged(SizeChangedEventArgs e) { base.OnSizeChanged(e); _bitmap = null; InvalidateVisual(); }
+
+    public override void Render(DrawingContext context)
+    {
+        base.Render(context);
+        int w = (int)Bounds.Width, h = (int)Bounds.Height;
+        if (w < 2 || h < 2 || _vm == null || _nVerts == 0) return;
+
+        if (_bitmap == null || _bw != w || _bh != h)
+        {
+            _bw = w; _bh = h;
+            _bitmap = new WriteableBitmap(new PixelSize(w, h), new Vector(96, 96), Avalonia.Platform.PixelFormat.Bgra8888);
+            _pixels = new uint[w * h];
+            _zbuf = new float[w * h];
         }
 
-        // Create GPU mesh
-        var gpuMesh = new StandardMesh(
-            vertList.ToArray(),
-            indexList.ToArray(),
-            name: "FEMesh");
+        // Project vertices (the only per-frame work for camera changes)
+        var cam = Camera.Build(_vm.Camera);
+        double orthoHH = _vm.Camera.Dist;
+        float scale = (float)(h / (2.0 * orthoHH));
+        float hw = w / 2f, hh = h / 2f;
+        float ex = (float)cam.Eye.X, ey = (float)cam.Eye.Y, ez = (float)cam.Eye.Z;
+        float rrx = (float)cam.Right.X, rry = (float)cam.Right.Y, rrz = (float)cam.Right.Z;
+        float urx = (float)cam.Up.X, ury = (float)cam.Up.Y, urz = (float)cam.Up.Z;
+        float frx = (float)cam.Forward.X, fry = (float)cam.Forward.Y, frz = (float)cam.Forward.Z;
 
-        var material = new VertexColorMaterial(colorList.ToArray(), name: "FEColors")
+        var sx = new float[_nVerts]; var sy = new float[_nVerts]; var sz = new float[_nVerts];
+        for (int i = 0; i < _nVerts; i++)
         {
-            IsTwoSided = true,
+            float rx = _posX[i] - ex, ry = _posY[i] - ey, rz = _posZ[i] - ez;
+            sx[i] = hw + (rx * rrx + ry * rry + rz * rrz) * scale;
+            sy[i] = hh - (rx * urx + ry * ury + rz * urz) * scale;
+            sz[i] = rx * frx + ry * fry + rz * frz;
+        }
+
+        // Rasterize
+        BitmapRenderer.RenderFaces(_pixels!, _zbuf!, w, h, sx, sy, sz, _faceOffsets, _faceVertices, _faceR, _faceG, _faceB);
+        if (_edgePairs.Length > 0)
+            BitmapRenderer.RenderEdges(_pixels!, w, h, sx, sy, sz, _edgePairs, 0xFF333333, _zbuf!, 0.02f);
+
+        using (var fb = _bitmap!.Lock())
+            Marshal.Copy((int[])(object)_pixels!, 0, fb.Address, _pixels!.Length);
+
+        context.DrawImage(_bitmap, new Rect(new Point(0, 0), new Size(w, h)));
+
+        // Lightweight overlays
+        var bounds = new Rect(0, 0, w, h);
+        if (!string.IsNullOrEmpty(_vm.ActiveField) && _cachedMode != DisplayMode.Wireframe)
+            DrawColorBar(context, bounds);
+        DrawTriad(context, bounds);
+        if (!string.IsNullOrEmpty(_vm.Info))
+        {
+            var text = new FormattedText(_vm.Info, System.Globalization.CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight, SciBold, 13, Brushes.Gray);
+            context.DrawText(text, new Point(10, 10));
+        }
+    }
+
+    private void DrawColorBar(DrawingContext ctx, Rect bounds)
+    {
+        if (_vm == null) return;
+        double bh = Math.Min(220, bounds.Height - 60), bw = 16;
+        double by = (bounds.Height - bh) / 2, barX = bounds.Width - bw - 30, labelRight = barX - 6;
+        var lb = new SolidColorBrush(Color.FromRgb(51, 51, 51));
+        for (int i = 0; i < 64; i++)
+        {
+            double t = i / 63.0; var (r, g, b) = TurboColormap.Sample(t);
+            ctx.FillRectangle(new SolidColorBrush(Color.FromRgb((byte)(r * 255), (byte)(g * 255), (byte)(b * 255))),
+                new Rect(barX, by + bh - (i + 1) * bh / 64, bw, bh / 64 + 0.5));
+        }
+        ctx.DrawRectangle(new Pen(new SolidColorBrush(Color.FromRgb(100, 100, 100)), 0.5), new Rect(barX - 0.5, by - 0.5, bw + 1, bh + 1));
+        for (int i = 0; i < 6; i++)
+        {
+            double t = i / 5.0, v = _vm.FRangeMax - t * (_vm.FRangeMax - _vm.FRangeMin);
+            var text = new FormattedText(v.ToString("E2"), System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, SciBold, 10, lb);
+            ctx.DrawText(text, new Point(labelRight - text.Width, by + t * bh - text.Height / 2));
+        }
+        var ft = new FormattedText(_vm.ActiveField, System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, SciBold, 12, lb);
+        using (ctx.PushTransform(Matrix.CreateTranslation(barX + bw + 14, by + bh / 2 + ft.Width / 2)))
+        using (ctx.PushTransform(Matrix.CreateRotation(-Math.PI / 2)))
+            ctx.DrawText(ft, new Point(0, 0));
+    }
+
+    private void DrawTriad(DrawingContext ctx, Rect bounds)
+    {
+        if (_vm == null) return;
+        var rot = _vm.Camera.Rot;
+        double cx = 60, cy = bounds.Height - 60, al = 50;
+        var axes = new[] {
+            (rot[0] * al, -rot[3] * al, Color.FromRgb(220, 40, 40), "X\u2081"),
+            (rot[1] * al, -rot[4] * al, Color.FromRgb(40, 170, 40), "X\u2082"),
+            (rot[2] * al, -rot[5] * al, Color.FromRgb(40, 80, 220), "X\u2083"),
         };
-
-        _meshNode = new MeshModelNode(gpuMesh, material, name: "FEModel");
-        _sceneView.Scene.RootNode.Add(_meshNode);
-
-        // Wireframe edges
-        if (edgePositions.Count > 0)
+        foreach (var (dx, dy, col, lbl) in axes)
         {
-            _edgesNode = new MultiLineNode(
-                edgePositions.ToArray(),
-                isLineStrip: false,
-                lineColor: new Color4(0.13f, 0.13f, 0.13f, 0.5f),
-                lineThickness: 0.5f,
-                name: "FEEdges");
-            _sceneView.Scene.RootNode.Add(_edgesNode);
+            var tip = new Point(cx + dx, cy + dy);
+            ctx.DrawLine(new Pen(new SolidColorBrush(col), 2.5), new Point(cx, cy), tip);
+            double len = Math.Sqrt(dx * dx + dy * dy);
+            if (len > 5)
+            {
+                double ux = dx / len, uy = dy / len, px = -uy, py = ux;
+                var hg = new StreamGeometry(); using (var c = hg.Open()) { c.BeginFigure(tip, true); c.LineTo(new Point(tip.X - ux * 10 + px * 4, tip.Y - uy * 10 + py * 4)); c.LineTo(new Point(tip.X - ux * 10 - px * 4, tip.Y - uy * 10 - py * 4)); c.EndFigure(true); }
+                ctx.DrawGeometry(new SolidColorBrush(col), null, hg);
+            }
+            var lt = new FormattedText(lbl, System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, SciBold, 17, new SolidColorBrush(col));
+            double lox = len > 5 ? dx / len * 14 : 7, loy = len > 5 ? dy / len * 14 : -7;
+            ctx.DrawText(lt, new Point(tip.X + lox - lt.Width / 2, tip.Y + loy - lt.Height / 2));
         }
+    }
 
-        // Auto-fit camera
-        _camera.TargetPosition = new Vector3(0, 0, 0);
-        _camera.Distance = 4f;
-        if (mesh.Dim == 2)
+    // ─── Arcball + screen-space pan ───
+    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    {
+        base.OnPointerPressed(e); if (_vm == null) return;
+        _dragging = true; _panning = e.GetCurrentPoint(this).Properties.IsRightButtonPressed;
+        _lastMouse = e.GetPosition(this); e.Handled = true; Focus();
+    }
+
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        base.OnPointerMoved(e); if (!_dragging || _vm == null) return;
+        var pos = e.GetPosition(this); var cam = _vm.Camera;
+        if (_panning)
         {
-            _camera.Heading = 0;
-            _camera.Attitude = -90;
+            double dx = pos.X - _lastMouse.X, dy = pos.Y - _lastMouse.Y;
+            double ps = 2.0 * cam.Dist / Math.Max(Bounds.Width, Bounds.Height);
+            var r = cam.Rot;
+            cam.Tx += (dx * r[0] - dy * r[3]) * ps;
+            cam.Ty += (dx * r[1] - dy * r[4]) * ps;
+            cam.Tz += (dx * r[2] - dy * r[5]) * ps;
         }
+        else
+        {
+            double w = Bounds.Width, h = Bounds.Height, dim = Math.Min(w, h);
+            cam.Rot = CameraParams.Mul(CameraParams.ArcballDelta(
+                (2 * _lastMouse.X - w) / dim, -(2 * _lastMouse.Y - h) / dim,
+                (2 * pos.X - w) / dim, -(2 * pos.Y - h) / dim), cam.Rot);
+        }
+        _lastMouse = pos; InvalidateVisual(); e.Handled = true;
+    }
+
+    protected override void OnPointerReleased(PointerReleasedEventArgs e) { base.OnPointerReleased(e); _dragging = false; e.Handled = true; }
+
+    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+    {
+        base.OnPointerWheelChanged(e); if (_vm == null) return;
+        _vm.Camera.Dist *= e.Delta.Y < 0 ? 1.03 : (1.0 / 1.03);
+        _vm.Camera.Dist = Math.Clamp(_vm.Camera.Dist, 0.1, 50);
+        InvalidateVisual(); e.Handled = true;
     }
 }
