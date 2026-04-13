@@ -43,11 +43,13 @@ public class MeshViewport : Control
     private byte[] _vertG = Array.Empty<byte>();
     private byte[] _vertB = Array.Empty<byte>();
 
-    // ─── Frame buffers: 2x supersample then downsample for anti-aliasing ───
+    // ─── Frame buffers ───
     private WriteableBitmap? _bitmap;
-    private uint[]? _hiPixels;   // 2x resolution render target
+    private uint[]? _hiPixels;   // 2x render target (used only when not dragging)
     private float[]? _hiZbuf;
-    private uint[]? _loPixels;   // display resolution (downsampled)
+    private uint[]? _loPixels;   // 1x render target / downsample output
+    private float[]? _loZbuf;
+    private float[]? _sx, _sy, _sz; // reused screen-coord arrays
     private int _bw, _bh;
 
     // ─── Mouse ───
@@ -175,43 +177,60 @@ public class MeshViewport : Control
         int w = (int)Bounds.Width, h = (int)Bounds.Height;
         if (w < 2 || h < 2 || _vm == null || _nVerts == 0) return;
 
-        // 2x supersampling for anti-aliasing
-        int sw = w * 2, sh = h * 2;
+        // Allocate buffers (reused across frames)
+        bool ssaa = !_dragging; // 2x supersample only when not dragging (4x speedup while dragging)
+        int rw = ssaa ? w * 2 : w, rh = ssaa ? h * 2 : h;
+
         if (_bitmap == null || _bw != w || _bh != h)
         {
             _bw = w; _bh = h;
             _bitmap = new WriteableBitmap(new PixelSize(w, h), new Vector(96, 96), Avalonia.Platform.PixelFormat.Bgra8888);
-            _hiPixels = new uint[sw * sh];
-            _hiZbuf = new float[sw * sh];
+            _hiPixels = new uint[w * 2 * h * 2];
+            _hiZbuf = new float[w * 2 * h * 2];
             _loPixels = new uint[w * h];
+            _loZbuf = new float[w * h];
+            _sx = new float[_nVerts];
+            _sy = new float[_nVerts];
+            _sz = new float[_nVerts];
         }
 
-        // Project vertices at 2x resolution
+        // Reuse screen-coord arrays (no per-frame allocation)
+        if (_sx!.Length != _nVerts) { _sx = new float[_nVerts]; _sy = new float[_nVerts]; _sz = new float[_nVerts]; }
+
+        // Project vertices — parallel across cores
         var cam = Camera.Build(_vm.Camera);
-        double orthoHH = _vm.Camera.Dist;
-        float scale = (float)(sh / (2.0 * orthoHH));
-        float hw = sw / 2f, hh = sh / 2f;
+        float scale = (float)(rh / (2.0 * _vm.Camera.Dist));
+        float hw = rw / 2f, hh = rh / 2f;
         float ex = (float)cam.Eye.X, ey = (float)cam.Eye.Y, ez = (float)cam.Eye.Z;
         float rrx = (float)cam.Right.X, rry = (float)cam.Right.Y, rrz = (float)cam.Right.Z;
         float urx = (float)cam.Up.X, ury = (float)cam.Up.Y, urz = (float)cam.Up.Z;
         float frx = (float)cam.Forward.X, fry = (float)cam.Forward.Y, frz = (float)cam.Forward.Z;
+        var lsx = _sx!; var lsy = _sy!; var lsz = _sz!;
 
-        var sx = new float[_nVerts]; var sy = new float[_nVerts]; var sz = new float[_nVerts];
-        for (int i = 0; i < _nVerts; i++)
+        Parallel.For(0, _nVerts, i =>
         {
             float rx = _posX[i] - ex, ry = _posY[i] - ey, rz = _posZ[i] - ez;
-            sx[i] = hw + (rx * rrx + ry * rry + rz * rrz) * scale;
-            sy[i] = hh - (rx * urx + ry * ury + rz * urz) * scale;
-            sz[i] = rx * frx + ry * fry + rz * frz;
-        }
+            lsx[i] = hw + (rx * rrx + ry * rry + rz * rrz) * scale;
+            lsy[i] = hh - (rx * urx + ry * ury + rz * urz) * scale;
+            lsz[i] = rx * frx + ry * fry + rz * frz;
+        });
 
-        // Rasterize at 2x, then downsample
-        BitmapRenderer.RenderFaces(_hiPixels!, _hiZbuf!, sw, sh, sx, sy, sz, _faceOffsets, _faceVertices, _vertR, _vertG, _vertB);
-        BitmapRenderer.RenderEdges(_hiPixels!, sw, sh, sx, sy, sz, _faceOffsets, _faceVertices, _drawEdges, 0xFF222222, _hiZbuf!);
-        BitmapRenderer.Downsample2x(_hiPixels!, sw, sh, _loPixels!, w, h);
+        // Rasterize
+        var pixels = ssaa ? _hiPixels! : _loPixels!;
+        var zbuf = ssaa ? _hiZbuf! : _loZbuf!;
+
+        BitmapRenderer.RenderFaces(pixels, zbuf, rw, rh, _sx!, _sy!, _sz!, _faceOffsets, _faceVertices, _vertR, _vertG, _vertB);
+        BitmapRenderer.RenderEdges(pixels, rw, rh, _sx!, _sy!, _sz!, _faceOffsets, _faceVertices, _drawEdges, 0xFF222222, zbuf);
+
+        // Downsample if supersampled, or use directly
+        var output = _loPixels!;
+        if (ssaa)
+            BitmapRenderer.Downsample2x(_hiPixels!, rw, rh, output, w, h);
+        else
+            output = pixels; // already at 1x
 
         using (var fb = _bitmap!.Lock())
-            Marshal.Copy((int[])(object)_loPixels!, 0, fb.Address, _loPixels!.Length);
+            Marshal.Copy((int[])(object)output, 0, fb.Address, w * h);
 
         context.DrawImage(_bitmap, new Rect(new Point(0, 0), new Size(w, h)));
 
@@ -311,7 +330,13 @@ public class MeshViewport : Control
         _lastMouse = pos; InvalidateVisual(); e.Handled = true;
     }
 
-    protected override void OnPointerReleased(PointerReleasedEventArgs e) { base.OnPointerReleased(e); _dragging = false; e.Handled = true; }
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    {
+        base.OnPointerReleased(e);
+        _dragging = false;
+        InvalidateVisual(); // re-render at 2x for quality
+        e.Handled = true;
+    }
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
