@@ -13,24 +13,23 @@ public class CameraState
 
 public static class Camera
 {
+    /// <summary>
+    /// Build camera state from rotation matrix + distance + pan.
+    /// </summary>
     public static CameraState Build(CameraParams cp)
     {
-        var eye = new Vec3(
-            cp.Dist * Math.Sin(cp.Phi) * Math.Sin(cp.Theta) + cp.Tx,
-            cp.Dist * Math.Cos(cp.Phi) + cp.Ty,
-            cp.Dist * Math.Sin(cp.Phi) * Math.Cos(cp.Theta));
+        var rot = cp.Rot;
 
+        // Extract basis vectors from rotation matrix (rows)
+        var right = new Vec3(rot[0], rot[1], rot[2]);
+        var up = new Vec3(rot[3], rot[4], rot[5]);
+        var fwd = new Vec3(rot[6], rot[7], rot[8]);
+
+        // Eye = target - forward * dist
         var target = new Vec3(cp.Tx, cp.Ty, 0);
-        var fwd = (target - eye).Normalized();
-        var up = new Vec3(0, 1, 0);
+        var eye = target - fwd * cp.Dist;
 
-        if (Math.Abs(Vec3.Dot(fwd, up)) > 0.99)
-            up = new Vec3(0, 0, -1);
-
-        var right = Vec3.Cross(fwd, up).Normalized();
-        var upC = Vec3.Cross(right, fwd);
-
-        return new CameraState { Eye = eye, Forward = fwd, Right = right, Up = upC };
+        return new CameraState { Eye = eye, Forward = fwd, Right = right, Up = up };
     }
 
     /// <summary>
@@ -45,7 +44,7 @@ public static class Camera
         double y = Vec3.Dot(rel, cam.Up);
         double z = Vec3.Dot(rel, cam.Forward);
 
-        if (z < 0.01) return null; // behind camera
+        if (z < 0.01) return null;
 
         double scale = h / (2.0 * orthoHalfHeight);
         return new[] { w / 2.0 + x * scale, h / 2.0 - y * scale, z };

@@ -25,5 +25,5 @@ public static class ExportHelpers
     }
 
     public const string CmFontFamily =
-        "\"Computer Modern Serif\",\"CMU Serif\",\"Latin Modern Roman\",\"Times New Roman\",serif";
+        "\"STIX Two Text\",\"Computer Modern Serif\",\"CMU Serif\",\"Latin Modern Roman\",\"Times New Roman\",serif";
 }
