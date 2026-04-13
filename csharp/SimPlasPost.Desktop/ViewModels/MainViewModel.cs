@@ -71,10 +71,6 @@ public class MainViewModel : INotifyPropertyChanged
 
     public CameraParams Camera { get; } = CameraParams.For3D();
 
-    // Momentum for orbit rotation
-    public double VelTheta { get; set; }
-    public double VelPhi { get; set; }
-
     public ObservableCollection<SavedView> SavedViews { get; } = new();
     private string _viewName = "";
     public string ViewName { get => _viewName; set => Set(ref _viewName, value); }
@@ -226,7 +222,7 @@ public class MainViewModel : INotifyPropertyChanged
     public void RestoreView(SavedView v)
     {
         Camera.CopyFrom(v.Cam);
-        VelTheta = 0; VelPhi = 0;
+
         InvalidateScene();
     }
 
@@ -235,7 +231,7 @@ public class MainViewModel : INotifyPropertyChanged
     public void SetPresetView(CameraParams preset)
     {
         Camera.CopyFrom(preset);
-        VelTheta = 0; VelPhi = 0;
+
         InvalidateScene();
     }
 
@@ -268,29 +264,10 @@ public class MainViewModel : INotifyPropertyChanged
         double bbMxX = (mxX - cenX) * sc, bbMxY = (mxY - cenY) * sc, bbMxZ = (mxZ - cenZ) * sc;
 
         var c = Camera;
-        double sphi = Math.Sin(c.Phi), cphi = Math.Cos(c.Phi);
-        double sth = Math.Sin(c.Theta), cth = Math.Cos(c.Theta);
-        double[] fwd = { -sphi * sth, -cphi, -sphi * cth };
-        double[] up = { 0, 1, 0 };
-        if (Math.Abs(fwd[0] * up[0] + fwd[1] * up[1] + fwd[2] * up[2]) > 0.99)
-            up = new[] { 0.0, 0.0, -1.0 };
-
-        double rl = Math.Sqrt(
-            Math.Pow(fwd[1] * up[2] - fwd[2] * up[1], 2) +
-            Math.Pow(fwd[2] * up[0] - fwd[0] * up[2], 2) +
-            Math.Pow(fwd[0] * up[1] - fwd[1] * up[0], 2));
-        double[] right =
-        {
-            (fwd[1] * up[2] - fwd[2] * up[1]) / rl,
-            (fwd[2] * up[0] - fwd[0] * up[2]) / rl,
-            (fwd[0] * up[1] - fwd[1] * up[0]) / rl,
-        };
-        double[] upC =
-        {
-            right[1] * fwd[2] - right[2] * fwd[1],
-            right[2] * fwd[0] - right[0] * fwd[2],
-            right[0] * fwd[1] - right[1] * fwd[0],
-        };
+        var rot = c.Rot;
+        // Extract basis from rotation matrix rows
+        double[] right = { rot[0], rot[1], rot[2] };
+        double[] upC = { rot[3], rot[4], rot[5] };
 
         double x0 = double.MaxValue, x1 = double.MinValue, y0 = double.MaxValue, y1 = double.MinValue;
         for (int ix = 0; ix < 2; ix++)
@@ -313,7 +290,7 @@ public class MainViewModel : INotifyPropertyChanged
         c.Dist = Math.Max(viewH / 2 * 1.08, Math.Max(viewW / 2 * 1.08 * cbExtra / aspect, 0.3));
         c.Tx = !string.IsNullOrEmpty(ActiveField) ? viewCx - c.Dist * aspect * 0.1 : viewCx;
         c.Ty = viewCy;
-        VelTheta = 0; VelPhi = 0;
+
         InvalidateScene();
     }
 }

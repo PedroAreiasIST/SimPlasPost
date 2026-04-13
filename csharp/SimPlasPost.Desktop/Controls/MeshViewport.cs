@@ -10,24 +10,22 @@ using SimPlasPost.Desktop.ViewModels;
 namespace SimPlasPost.Desktop.Controls;
 
 /// <summary>
-/// Custom Avalonia control that renders the FE mesh using painter's algorithm.
-/// Uses Avalonia's GPU-accelerated DrawingContext for filled polygon rendering.
+/// Custom Avalonia control: arcball-based mesh viewport with STIX Two fonts.
 /// </summary>
 public class MeshViewport : Control
 {
+    // Font for scientific labels (STIX Two Text — Computer Modern equivalent)
+    private static readonly FontFamily SciFont = new("avares://SimPlasPost.Desktop/Fonts#STIX Two Text");
+    private static readonly Typeface SciBold = new(SciFont, FontStyle.Normal, FontWeight.Bold);
+    private static readonly Typeface SciRegular = new(SciFont, FontStyle.Normal, FontWeight.Normal);
+
     private MainViewModel? _vm;
     private ExportScene? _cachedScene;
 
     // Mouse state
-    private bool _mouseDown;
-    private int _mouseButton; // 0=left, 1=right
+    private bool _dragging;
+    private bool _panning; // true = right-button pan
     private Point _lastMouse;
-
-    // Touch state (reserved for pinch-zoom support)
-    private readonly Dictionary<long, Point> _touches = new();
-
-    // Momentum animation
-    private DispatcherTimer? _momentumTimer;
 
     public void SetViewModel(MainViewModel vm)
     {
@@ -57,14 +55,12 @@ public class MeshViewport : Control
     {
         base.Render(context);
         var bounds = new Rect(Bounds.Size);
-
-        // White background
         context.FillRectangle(Brushes.White, bounds);
 
         if (_cachedScene == null) return;
         var scene = _cachedScene;
 
-        // Draw faces (painter's algorithm order — already sorted back-to-front)
+        // Faces (painter's algorithm — already sorted back-to-front)
         foreach (var face in scene.Faces)
         {
             if (face.ScreenPts.Length < 3) continue;
@@ -80,41 +76,39 @@ public class MeshViewport : Control
             context.DrawGeometry(new SolidColorBrush(color), null, geom);
         }
 
-        // Draw visible wireframe edges
+        // Visible wireframe edges
         if (scene.VisibleEdges.Count > 0)
         {
-            var edgePen = new Pen(new SolidColorBrush(Color.FromArgb((byte)(scene.Lp.Opacity * 255), 34, 34, 34)), scene.Lp.SvgWidth);
+            var edgePen = new Pen(new SolidColorBrush(Color.FromArgb(
+                (byte)(scene.Lp.Opacity * 255), 34, 34, 34)), scene.Lp.SvgWidth);
             foreach (var e in scene.VisibleEdges)
                 context.DrawLine(edgePen, new Point(e.P1[0], e.P1[1]), new Point(e.P2[0], e.P2[1]));
         }
 
-        // Draw contour lines
-        if (scene.Contours.Count > 0)
+        // Contour lines
+        foreach (var c in scene.Contours)
         {
-            foreach (var c in scene.Contours)
-            {
-                var color = Color.FromRgb((byte)(c.R * 255), (byte)(c.G * 255), (byte)(c.B * 255));
-                var pen = new Pen(new SolidColorBrush(color), 1.0);
-                context.DrawLine(pen, new Point(c.P1[0], c.P1[1]), new Point(c.P2[0], c.P2[1]));
-            }
+            var color = Color.FromRgb((byte)(c.R * 255), (byte)(c.G * 255), (byte)(c.B * 255));
+            var pen = new Pen(new SolidColorBrush(color), 1.0);
+            context.DrawLine(pen, new Point(c.P1[0], c.P1[1]), new Point(c.P2[0], c.P2[1]));
         }
 
-        // Draw color bar
+        // Color bar with STIX fonts
         if (!string.IsNullOrEmpty(scene.FieldName))
             DrawColorBar(context, scene, bounds);
 
-        // Draw info text
+        // Info overlay
         if (_vm != null && !string.IsNullOrEmpty(_vm.Info))
         {
             var text = new FormattedText(_vm.Info, System.Globalization.CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight, new Typeface("Times New Roman", FontStyle.Normal, FontWeight.Bold), 13, Brushes.Gray);
+                FlowDirection.LeftToRight, SciBold, 13, Brushes.Gray);
             context.DrawText(text, new Point(10, 10));
         }
 
-        // Draw help text
+        // Help text
         var helpText = new FormattedText("Drag: rotate \u00b7 Right-drag: pan \u00b7 Scroll: zoom",
             System.Globalization.CultureInfo.InvariantCulture,
-            FlowDirection.LeftToRight, new Typeface("Times New Roman", FontStyle.Normal, FontWeight.Bold), 12,
+            FlowDirection.LeftToRight, SciBold, 12,
             new SolidColorBrush(Color.FromRgb(170, 170, 170)));
         context.DrawText(helpText, new Point(bounds.Width - helpText.Width - 14, bounds.Height - 24));
     }
@@ -125,7 +119,6 @@ public class MeshViewport : Control
         double by = bounds.Height / 2 - bh / 2;
         int nSteps = 64, nLabels = 6;
 
-        // Gradient strips
         for (int i = 0; i < nSteps; i++)
         {
             double t = i / (double)(nSteps - 1);
@@ -136,12 +129,9 @@ public class MeshViewport : Control
                 new Rect(bx, ry, bw, bh / (double)nSteps + 0.5));
         }
 
-        // Border
         context.DrawRectangle(new Pen(new SolidColorBrush(Color.FromRgb(85, 85, 85)), 0.5),
             new Rect(bx - 0.5, by - 0.5, bw + 1, bh + 1));
 
-        // Labels
-        var typeface = new Typeface("Times New Roman", FontStyle.Normal, FontWeight.Bold);
         var labelBrush = new SolidColorBrush(Color.FromRgb(51, 51, 51));
         for (int i = 0; i < nLabels; i++)
         {
@@ -149,13 +139,12 @@ public class MeshViewport : Control
             double v = scene.FMax - t * (scene.FMax - scene.FMin);
             double ly = by + t * bh;
             var text = new FormattedText(v.ToString("E2"), System.Globalization.CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight, typeface, 11, labelBrush);
+                FlowDirection.LeftToRight, SciBold, 11, labelBrush);
             context.DrawText(text, new Point(bx - text.Width - 5, ly - text.Height / 2));
         }
 
-        // Field name (rotated)
         var fieldText = new FormattedText(scene.FieldName!, System.Globalization.CultureInfo.InvariantCulture,
-            FlowDirection.LeftToRight, typeface, 13, labelBrush);
+            FlowDirection.LeftToRight, SciBold, 13, labelBrush);
         using (context.PushTransform(Matrix.CreateTranslation(bx + bw + 18, by + bh / 2 + fieldText.Width / 2)))
         using (context.PushTransform(Matrix.CreateRotation(-Math.PI / 2)))
         {
@@ -163,40 +152,46 @@ public class MeshViewport : Control
         }
     }
 
-    // ─── Mouse interaction ───
+    // ─── Arcball mouse interaction ───
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
         if (_vm == null) return;
-        _mouseDown = true;
-        _mouseButton = e.GetCurrentPoint(this).Properties.IsRightButtonPressed ? 1 : 0;
+        _dragging = true;
+        _panning = e.GetCurrentPoint(this).Properties.IsRightButtonPressed;
         _lastMouse = e.GetPosition(this);
-        _vm.VelTheta = 0; _vm.VelPhi = 0;
-        StopMomentum();
         e.Handled = true;
+        Focus();
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        if (!_mouseDown || _vm == null) return;
+        if (!_dragging || _vm == null) return;
 
         var pos = e.GetPosition(this);
-        double dx = pos.X - _lastMouse.X, dy = pos.Y - _lastMouse.Y;
         var cam = _vm.Camera;
 
-        if (_mouseButton == 0) // Orbit
+        if (_panning)
         {
-            double sinP = Math.Max(0.15, Math.Abs(Math.Sin(cam.Phi)));
-            double dt = -dx * 0.005 / sinP, dp = -dy * 0.005;
-            cam.Theta += dt;
-            cam.Phi = Math.Clamp(cam.Phi + dp, 0.01, Math.PI - 0.01);
-            _vm.VelTheta = dt; _vm.VelPhi = dp;
-        }
-        else // Pan
-        {
+            double dx = pos.X - _lastMouse.X;
+            double dy = pos.Y - _lastMouse.Y;
             cam.Tx += dx * 0.003 * cam.Dist;
             cam.Ty -= dy * 0.003 * cam.Dist;
+        }
+        else
+        {
+            // Arcball rotation: map screen coords to [-1,1] sphere
+            double w = Bounds.Width, h = Bounds.Height;
+            double dim = Math.Min(w, h);
+            double x0 = (2.0 * _lastMouse.X - w) / dim;
+            double y0 = -(2.0 * _lastMouse.Y - h) / dim;
+            double x1 = (2.0 * pos.X - w) / dim;
+            double y1 = -(2.0 * pos.Y - h) / dim;
+
+            var delta = CameraParams.ArcballDelta(x0, y0, x1, y1);
+            // Apply rotation: new_rot = delta * current_rot
+            cam.Rot = CameraParams.Mul(delta, cam.Rot);
         }
 
         _lastMouse = pos;
@@ -207,9 +202,7 @@ public class MeshViewport : Control
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
-        _mouseDown = false;
-        if (_vm != null && (Math.Abs(_vm.VelTheta) > 1e-5 || Math.Abs(_vm.VelPhi) > 1e-5))
-            StartMomentum();
+        _dragging = false;
         e.Handled = true;
     }
 
@@ -221,32 +214,5 @@ public class MeshViewport : Control
         _vm.Camera.Dist = Math.Clamp(_vm.Camera.Dist, 0.3, 20);
         RebuildScene();
         e.Handled = true;
-    }
-
-    // ─── Momentum ───
-    private void StartMomentum()
-    {
-        StopMomentum();
-        _momentumTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
-        _momentumTimer.Tick += MomentumTick;
-        _momentumTimer.Start();
-    }
-
-    private void StopMomentum()
-    {
-        _momentumTimer?.Stop();
-        _momentumTimer = null;
-    }
-
-    private void MomentumTick(object? sender, EventArgs e)
-    {
-        if (_vm == null || _mouseDown) { StopMomentum(); return; }
-        if (Math.Abs(_vm.VelTheta) < 1e-5 && Math.Abs(_vm.VelPhi) < 1e-5) { StopMomentum(); return; }
-
-        _vm.Camera.Theta += _vm.VelTheta;
-        _vm.Camera.Phi = Math.Clamp(_vm.Camera.Phi + _vm.VelPhi, 0.01, Math.PI - 0.01);
-        _vm.VelTheta *= 0.92;
-        _vm.VelPhi *= 0.92;
-        RebuildScene();
     }
 }

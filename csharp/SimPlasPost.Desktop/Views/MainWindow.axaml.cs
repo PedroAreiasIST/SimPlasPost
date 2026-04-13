@@ -180,16 +180,16 @@ public partial class MainWindow : Window
         if (sender is not Button btn || btn.Tag is not string tag) return;
         var presets = new Dictionary<string, CameraParams>
         {
-            ["pX"] = new() { Theta = Math.PI / 2, Phi = Math.PI / 2, Dist = 2.5 },
-            ["nX"] = new() { Theta = -Math.PI / 2, Phi = Math.PI / 2, Dist = 2.5 },
-            ["pY"] = new() { Theta = 0, Phi = 0.001, Dist = 2.5 },
-            ["nY"] = new() { Theta = 0, Phi = Math.PI - 0.001, Dist = 2.5 },
-            ["pZ"] = new() { Theta = 0, Phi = Math.PI / 2, Dist = 2.5 },
-            ["nZ"] = new() { Theta = Math.PI, Phi = Math.PI / 2, Dist = 2.5 },
-            ["iFR"] = new() { Theta = 0.62, Phi = 0.76, Dist = 3.2 },
-            ["iFL"] = new() { Theta = -0.62, Phi = 0.76, Dist = 3.2 },
-            ["iBR"] = new() { Theta = Math.PI - 0.62, Phi = 0.76, Dist = 3.2 },
-            ["iBL"] = new() { Theta = Math.PI + 0.62, Phi = 0.76, Dist = 3.2 },
+            ["pX"] = CameraParams.FromAngles(Math.PI / 2, Math.PI / 2, 2.5),
+            ["nX"] = CameraParams.FromAngles(-Math.PI / 2, Math.PI / 2, 2.5),
+            ["pY"] = CameraParams.FromAngles(0, 0.001, 2.5),
+            ["nY"] = CameraParams.FromAngles(0, Math.PI - 0.001, 2.5),
+            ["pZ"] = CameraParams.FromAngles(0, Math.PI / 2, 2.5),
+            ["nZ"] = CameraParams.FromAngles(Math.PI, Math.PI / 2, 2.5),
+            ["iFR"] = CameraParams.FromAngles(0.62, 0.76, 3.2),
+            ["iFL"] = CameraParams.FromAngles(-0.62, 0.76, 3.2),
+            ["iBR"] = CameraParams.FromAngles(Math.PI - 0.62, 0.76, 3.2),
+            ["iBL"] = CameraParams.FromAngles(Math.PI + 0.62, 0.76, 3.2),
         };
         if (presets.TryGetValue(tag, out var p)) _vm.SetPresetView(p);
     }
