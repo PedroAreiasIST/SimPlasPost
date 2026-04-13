@@ -39,14 +39,15 @@ public class MeshViewport : Control
     private int[] _faceOffsets = Array.Empty<int>();
     private int[] _faceVertices = Array.Empty<int>();
     private bool[] _drawEdges = Array.Empty<bool>();  // per-face: should edges be drawn?
-    private byte[] _faceR = Array.Empty<byte>();
-    private byte[] _faceG = Array.Empty<byte>();
-    private byte[] _faceB = Array.Empty<byte>();
+    private byte[] _vertR = Array.Empty<byte>();  // per-VERTEX colors for smooth interpolation
+    private byte[] _vertG = Array.Empty<byte>();
+    private byte[] _vertB = Array.Empty<byte>();
 
-    // ─── Frame buffer (reused) ───
+    // ─── Frame buffers: 2x supersample then downsample for anti-aliasing ───
     private WriteableBitmap? _bitmap;
-    private uint[]? _pixels;
-    private float[]? _zbuf;
+    private uint[]? _hiPixels;   // 2x resolution render target
+    private float[]? _hiZbuf;
+    private uint[]? _loPixels;   // display resolution (downsampled)
     private int _bw, _bh;
 
     // ─── Mouse ───
@@ -132,11 +133,24 @@ public class MeshViewport : Control
         double efSpan = Math.Abs(efMax - efMin) < 1e-15 ? 1 : efMax - efMin;
         _vm.FRangeMin = fmin; _vm.FRangeMax = fmax;
 
-        // Pack faces into flat arrays
+        // Per-vertex colors (smooth interpolation across triangles)
+        var vr = new byte[_nVerts]; var vg = new byte[_nVerts]; var vb = new byte[_nVerts];
+        for (int i = 0; i < _nVerts; i++)
+        {
+            if (dMode == DisplayMode.Wireframe) { vr[i] = 255; vg[i] = 255; vb[i] = 255; }
+            else if (fv != null && i < fv.Length)
+            {
+                double t = (fv[i] - efMin) / efSpan;
+                var (r, g, b) = TurboColormap.Sample(t);
+                vr[i] = (byte)(r * 255); vg[i] = (byte)(g * 255); vb[i] = (byte)(b * 255);
+            }
+            else { vr[i] = 191; vg[i] = 199; vb[i] = 209; }
+        }
+
+        // Pack face topology
         int totalVerts = 0; foreach (var f in bfaces) totalVerts += f.Length;
         var offsets = new int[bfaces.Count + 1];
         var verts = new int[totalVerts];
-        var fr = new byte[bfaces.Count]; var fg = new byte[bfaces.Count]; var fb = new byte[bfaces.Count];
         var showEdges = new bool[bfaces.Count];
         int vi = 0;
         for (int fi = 0; fi < bfaces.Count; fi++)
@@ -144,21 +158,11 @@ public class MeshViewport : Control
             var face = bfaces[fi];
             offsets[fi] = vi;
             for (int j = 0; j < face.Length; j++) verts[vi++] = face[j];
-
-            if (dMode == DisplayMode.Wireframe) { fr[fi] = 255; fg[fi] = 255; fb[fi] = 255; }
-            else if (fv != null)
-            {
-                double avg = 0; for (int j = 0; j < face.Length; j++) avg += fv[face[j]]; avg /= face.Length;
-                var (r, g, b) = TurboColormap.Sample((avg - efMin) / efSpan);
-                fr[fi] = (byte)(r * 255); fg[fi] = (byte)(g * 255); fb[fi] = (byte)(b * 255);
-            }
-            else { fr[fi] = 191; fg[fi] = 199; fb[fi] = 209; }
-
             showEdges[fi] = dMode == DisplayMode.Wireframe || dMode == DisplayMode.Plot;
         }
         offsets[bfaces.Count] = vi;
         _faceOffsets = offsets; _faceVertices = verts;
-        _faceR = fr; _faceG = fg; _faceB = fb;
+        _vertR = vr; _vertG = vg; _vertB = vb;
         _drawEdges = showEdges;
         InvalidateVisual();
     }
@@ -171,19 +175,22 @@ public class MeshViewport : Control
         int w = (int)Bounds.Width, h = (int)Bounds.Height;
         if (w < 2 || h < 2 || _vm == null || _nVerts == 0) return;
 
+        // 2x supersampling for anti-aliasing
+        int sw = w * 2, sh = h * 2;
         if (_bitmap == null || _bw != w || _bh != h)
         {
             _bw = w; _bh = h;
             _bitmap = new WriteableBitmap(new PixelSize(w, h), new Vector(96, 96), Avalonia.Platform.PixelFormat.Bgra8888);
-            _pixels = new uint[w * h];
-            _zbuf = new float[w * h];
+            _hiPixels = new uint[sw * sh];
+            _hiZbuf = new float[sw * sh];
+            _loPixels = new uint[w * h];
         }
 
-        // Project vertices (the only per-frame work for camera changes)
+        // Project vertices at 2x resolution
         var cam = Camera.Build(_vm.Camera);
         double orthoHH = _vm.Camera.Dist;
-        float scale = (float)(h / (2.0 * orthoHH));
-        float hw = w / 2f, hh = h / 2f;
+        float scale = (float)(sh / (2.0 * orthoHH));
+        float hw = sw / 2f, hh = sh / 2f;
         float ex = (float)cam.Eye.X, ey = (float)cam.Eye.Y, ez = (float)cam.Eye.Z;
         float rrx = (float)cam.Right.X, rry = (float)cam.Right.Y, rrz = (float)cam.Right.Z;
         float urx = (float)cam.Up.X, ury = (float)cam.Up.Y, urz = (float)cam.Up.Z;
@@ -198,12 +205,13 @@ public class MeshViewport : Control
             sz[i] = rx * frx + ry * fry + rz * frz;
         }
 
-        // Rasterize faces, then front-facing edges only
-        BitmapRenderer.RenderFaces(_pixels!, _zbuf!, w, h, sx, sy, sz, _faceOffsets, _faceVertices, _faceR, _faceG, _faceB);
-        BitmapRenderer.RenderEdges(_pixels!, w, h, sx, sy, sz, _faceOffsets, _faceVertices, _drawEdges, 0xFF222222, _zbuf!);
+        // Rasterize at 2x, then downsample
+        BitmapRenderer.RenderFaces(_hiPixels!, _hiZbuf!, sw, sh, sx, sy, sz, _faceOffsets, _faceVertices, _vertR, _vertG, _vertB);
+        BitmapRenderer.RenderEdges(_hiPixels!, sw, sh, sx, sy, sz, _faceOffsets, _faceVertices, _drawEdges, 0xFF222222, _hiZbuf!);
+        BitmapRenderer.Downsample2x(_hiPixels!, sw, sh, _loPixels!, w, h);
 
         using (var fb = _bitmap!.Lock())
-            Marshal.Copy((int[])(object)_pixels!, 0, fb.Address, _pixels!.Length);
+            Marshal.Copy((int[])(object)_loPixels!, 0, fb.Address, _loPixels!.Length);
 
         context.DrawImage(_bitmap, new Rect(new Point(0, 0), new Size(w, h)));
 
