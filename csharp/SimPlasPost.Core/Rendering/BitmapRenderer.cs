@@ -1,15 +1,15 @@
 namespace SimPlasPost.Core.Rendering;
 
 /// <summary>
-/// High-performance software rasterizer: flat float arrays for cache-friendly access,
-/// scanline triangle fill with z-buffer, Bresenham lines with depth test.
+/// High-performance software rasterizer with front-face culling for edges.
+/// Only draws wireframe edges on faces that face the camera.
 /// </summary>
 public static class BitmapRenderer
 {
     public static void RenderFaces(
         uint[] pixels, float[] zbuf, int w, int h,
-        float[] sx, float[] sy, float[] sz,   // per-vertex screen coords
-        int[] faceOffsets, int[] faceVertices,  // packed face topology
+        float[] sx, float[] sy, float[] sz,
+        int[] faceOffsets, int[] faceVertices,
         byte[] faceR, byte[] faceG, byte[] faceB)
     {
         Array.Fill(pixels, 0xFFFFFFFFu);
@@ -34,22 +34,42 @@ public static class BitmapRenderer
         }
     }
 
+    /// <summary>
+    /// Render wireframe edges, but ONLY for front-facing faces.
+    /// Uses the screen-space cross product to determine face orientation.
+    /// </summary>
     public static void RenderEdges(
         uint[] pixels, int w, int h,
         float[] sx, float[] sy, float[] sz,
-        int[] edgePairs, uint edgeColor, float[] zbuf, float zBias)
+        int[] faceOffsets, int[] faceVertices, bool[] drawEdges,
+        uint edgeColor, float[] zbuf)
     {
-        for (int i = 0; i < edgePairs.Length; i += 2)
+        int nFaces = faceOffsets.Length - 1;
+        for (int fi = 0; fi < nFaces; fi++)
         {
-            int a = edgePairs[i], b = edgePairs[i + 1];
-            DrawLine(pixels, zbuf, w, h, sx[a], sy[a], sz[a] - zBias, sx[b], sy[b], sz[b] - zBias, edgeColor);
+            if (!drawEdges[fi]) continue;
+
+            int start = faceOffsets[fi], end = faceOffsets[fi + 1];
+            int nv = end - start;
+            if (nv < 3) continue;
+
+            // Check if face is front-facing (screen-space winding: CCW = front)
+            int v0 = faceVertices[start], v1 = faceVertices[start + 1], v2 = faceVertices[start + 2];
+            float cross = (sx[v1] - sx[v0]) * (sy[v2] - sy[v0]) - (sy[v1] - sy[v0]) * (sx[v2] - sx[v0]);
+            if (cross >= 0) continue; // back-facing, skip edges
+
+            for (int j = 0; j < nv; j++)
+            {
+                int a = faceVertices[start + j];
+                int b = faceVertices[start + (j + 1) % nv];
+                DrawLine(pixels, zbuf, w, h, sx[a], sy[a], sz[a], sx[b], sy[b], sz[b], edgeColor);
+            }
         }
     }
 
     private static void RasterTri(uint[] px, float[] zb, int w, int h,
         float ax, float ay, float az, float bx, float by, float bz, float cx, float cy, float cz, uint col)
     {
-        // Sort by Y
         if (ay > by) { (ax, bx) = (bx, ax); (ay, by) = (by, ay); (az, bz) = (bz, az); }
         if (ay > cy) { (ax, cx) = (cx, ax); (ay, cy) = (cy, ay); (az, cz) = (cz, az); }
         if (by > cy) { (bx, cx) = (cx, bx); (by, cy) = (cy, by); (bz, cz) = (cz, bz); }
@@ -109,7 +129,8 @@ public static class BitmapRenderer
             {
                 float z = az + (bz - az) * s * invS;
                 int idx = y0 * w + x0;
-                if (z <= zb[idx] + 0.01f) px[idx] = col;
+                // Strict z-test: edge must be AT or IN FRONT of face
+                if (z <= zb[idx]) px[idx] = col;
             }
             int e2 = 2 * err;
             if (e2 > -dyi) { err -= dyi; x0 += sxi; }

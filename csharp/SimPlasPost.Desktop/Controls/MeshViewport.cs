@@ -38,7 +38,7 @@ public class MeshViewport : Control
     private int _nVerts;
     private int[] _faceOffsets = Array.Empty<int>();
     private int[] _faceVertices = Array.Empty<int>();
-    private int[] _edgePairs = Array.Empty<int>();
+    private bool[] _drawEdges = Array.Empty<bool>();  // per-face: should edges be drawn?
     private byte[] _faceR = Array.Empty<byte>();
     private byte[] _faceG = Array.Empty<byte>();
     private byte[] _faceB = Array.Empty<byte>();
@@ -137,7 +137,7 @@ public class MeshViewport : Control
         var offsets = new int[bfaces.Count + 1];
         var verts = new int[totalVerts];
         var fr = new byte[bfaces.Count]; var fg = new byte[bfaces.Count]; var fb = new byte[bfaces.Count];
-        var edges = new List<int>();
+        var showEdges = new bool[bfaces.Count];
         int vi = 0;
         for (int fi = 0; fi < bfaces.Count; fi++)
         {
@@ -154,13 +154,12 @@ public class MeshViewport : Control
             }
             else { fr[fi] = 191; fg[fi] = 199; fb[fi] = 209; }
 
-            if (dMode == DisplayMode.Wireframe || dMode == DisplayMode.Plot)
-                for (int j = 0; j < face.Length; j++) { edges.Add(face[j]); edges.Add(face[(j + 1) % face.Length]); }
+            showEdges[fi] = dMode == DisplayMode.Wireframe || dMode == DisplayMode.Plot;
         }
         offsets[bfaces.Count] = vi;
         _faceOffsets = offsets; _faceVertices = verts;
         _faceR = fr; _faceG = fg; _faceB = fb;
-        _edgePairs = edges.ToArray();
+        _drawEdges = showEdges;
         InvalidateVisual();
     }
 
@@ -199,10 +198,9 @@ public class MeshViewport : Control
             sz[i] = rx * frx + ry * fry + rz * frz;
         }
 
-        // Rasterize
+        // Rasterize faces, then front-facing edges only
         BitmapRenderer.RenderFaces(_pixels!, _zbuf!, w, h, sx, sy, sz, _faceOffsets, _faceVertices, _faceR, _faceG, _faceB);
-        if (_edgePairs.Length > 0)
-            BitmapRenderer.RenderEdges(_pixels!, w, h, sx, sy, sz, _edgePairs, 0xFF333333, _zbuf!, 0.02f);
+        BitmapRenderer.RenderEdges(_pixels!, w, h, sx, sy, sz, _faceOffsets, _faceVertices, _drawEdges, 0xFF222222, _zbuf!);
 
         using (var fb = _bitmap!.Lock())
             Marshal.Copy((int[])(object)_pixels!, 0, fb.Address, _pixels!.Length);
