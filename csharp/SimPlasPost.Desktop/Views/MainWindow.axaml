@@ -45,12 +45,12 @@
         <StackPanel x:Name="PnlFieldRange" IsVisible="False" Margin="0,4,0,0" Spacing="3">
           <StackPanel Orientation="Horizontal" Spacing="4">
             <TextBlock Text="Min" FontSize="10" Foreground="#667788" Width="28" VerticalAlignment="Center"/>
-            <TextBox x:Name="TxtMin" FontSize="10" HorizontalAlignment="Stretch" Watermark="auto"
+            <TextBox x:Name="TxtMin" FontSize="10" HorizontalAlignment="Stretch" PlaceholderText="auto"
                      LostFocus="OnRangeChanged" KeyDown="OnRangeKeyDown"/>
           </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="4">
             <TextBlock Text="Max" FontSize="10" Foreground="#667788" Width="28" VerticalAlignment="Center"/>
-            <TextBox x:Name="TxtMax" FontSize="10" HorizontalAlignment="Stretch" Watermark="auto"
+            <TextBox x:Name="TxtMax" FontSize="10" HorizontalAlignment="Stretch" PlaceholderText="auto"
                      LostFocus="OnRangeChanged" KeyDown="OnRangeKeyDown"/>
           </StackPanel>
           <Button Content="Reset to auto" FontSize="9" Click="OnResetRange" Padding="2,2"/>
@@ -86,7 +86,7 @@
         <!-- Saved Views -->
         <TextBlock Text="Saved Views" Foreground="#4a9eff" FontSize="11" FontWeight="SemiBold" Margin="0,10,0,4"/>
         <StackPanel Orientation="Horizontal" Spacing="3" Margin="0,0,0,3">
-          <TextBox x:Name="TxtViewName" FontSize="10" Watermark="Name (optional)" HorizontalAlignment="Stretch"
+          <TextBox x:Name="TxtViewName" FontSize="10" PlaceholderText="Name (optional)" HorizontalAlignment="Stretch"
                    KeyDown="OnViewNameKeyDown"/>
           <Button Content="Save" Click="OnSaveView" Foreground="#68d391" BorderBrush="#48bb78" FontSize="10" Padding="3,3"/>
         </StackPanel>
