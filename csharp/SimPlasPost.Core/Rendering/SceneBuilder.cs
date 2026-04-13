@@ -98,12 +98,20 @@ public static class SceneBuilder
             var pts3D = pts.Select(p => new[] { p![0], p[1], p[2] }).ToArray();
             double avgZ = pts.Average(p => p![2]);
 
-            double r = 0.75, g = 0.78, b = 0.82;
-            if (fv != null && dMode != DisplayMode.Wireframe)
+            double r, g, b;
+            if (dMode == DisplayMode.Wireframe)
+            {
+                r = 1; g = 1; b = 1; // plain white faces
+            }
+            else if (fv != null)
             {
                 double avgF = face.Sum(ni => fv[ni]) / (double)face.Length;
                 double t = (avgF - efMin) / efSpan;
                 (r, g, b) = TurboColormap.Sample(t);
+            }
+            else
+            {
+                r = 0.75; g = 0.78; b = 0.82; // neutral gray when no field
             }
 
             exportFaces.Add(new ProjectedFace
