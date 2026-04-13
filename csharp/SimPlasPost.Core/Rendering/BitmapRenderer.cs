@@ -191,7 +191,8 @@ public static class BitmapRenderer
             {
                 float z = az + (bz - az) * s * invS;
                 int idx = y0 * w + x0;
-                if (z <= zb[idx]) px[idx] = col;
+                // Only draw on pixels where a face exists (zbuf was written)
+                if (z <= zb[idx] && zb[idx] < 1e9f) px[idx] = col;
             }
             int e2 = 2 * err;
             if (e2 > -dyi) { err -= dyi; x0 += sxi; }
