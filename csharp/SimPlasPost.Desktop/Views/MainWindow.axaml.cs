@@ -225,40 +225,26 @@ public partial class MainWindow : Window
     }
 
     // ─── Export ───
-    private async void OnExportSvg(object? sender, RoutedEventArgs e) =>
-        await SaveExport("SVG", "svg", "image/svg+xml", _vm.ExportSvg());
-
-    private async void OnExportEps(object? sender, RoutedEventArgs e) =>
-        await SaveExport("EPS", "eps", "application/postscript", _vm.ExportEps());
-
     private async void OnExportPdf(object? sender, RoutedEventArgs e)
     {
-        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        try
         {
-            Title = "Save PDF",
-            DefaultExtension = "pdf",
-            SuggestedFileName = GetMeshBaseName() + ".pdf",
-            FileTypeChoices = new[] { new FilePickerFileType("PDF") { Patterns = new[] { "*.pdf" } } },
-        });
-        if (file == null) return;
-        await using var stream = await file.OpenWriteAsync();
-        var bytes = _vm.ExportPdf();
-        await stream.WriteAsync(bytes);
-    }
-
-    private async Task SaveExport(string title, string ext, string mime, string content)
-    {
-        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Save PDF",
+                DefaultExtension = "pdf",
+                SuggestedFileName = GetMeshBaseName() + ".pdf",
+                FileTypeChoices = new[] { new FilePickerFileType("PDF") { Patterns = new[] { "*.pdf" } } },
+            });
+            if (file == null) return;
+            await using var stream = await file.OpenWriteAsync();
+            var bytes = _vm.ExportPdf();
+            await stream.WriteAsync(bytes);
+        }
+        catch (Exception ex)
         {
-            Title = $"Save {title}",
-            DefaultExtension = ext,
-            SuggestedFileName = GetMeshBaseName() + "." + ext,
-            FileTypeChoices = new[] { new FilePickerFileType(title) { Patterns = new[] { $"*.{ext}" } } },
-        });
-        if (file == null) return;
-        await using var stream = await file.OpenWriteAsync();
-        await using var writer = new StreamWriter(stream);
-        await writer.WriteAsync(content);
+            _vm.Log = $"Export error: {ex.Message}";
+        }
     }
 
     private string GetMeshBaseName() =>

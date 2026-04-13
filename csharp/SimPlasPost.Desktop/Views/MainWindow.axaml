@@ -105,12 +105,9 @@
 
         <!-- Export -->
         <TextBlock Text="Export" Foreground="#4a9eff" FontSize="11" FontWeight="SemiBold" Margin="0,14,0,4"/>
-        <TextBlock Text="Vector output, white bg, flat shading." FontSize="9" Foreground="#556677" TextWrapping="Wrap" Margin="0,0,0,4"/>
-        <UniformGrid Columns="3" Margin="0,0,0,4">
-          <Button Content="SVG" Click="OnExportSvg" Foreground="#68d391" BorderBrush="#48bb78" Classes="export"/>
-          <Button Content="EPS" Click="OnExportEps" Foreground="#fbd38d" BorderBrush="#ed8936" Classes="export"/>
-          <Button Content="PDF" Click="OnExportPdf" Foreground="#feb2b2" BorderBrush="#e53e3e" Classes="export"/>
-        </UniformGrid>
+        <TextBlock Text="Vector PDF, white bg, flat shading." FontSize="9" Foreground="#556677" TextWrapping="Wrap" Margin="0,0,0,4"/>
+        <Button Content="Export PDF" Click="OnExportPdf" HorizontalAlignment="Stretch"
+                Foreground="#feb2b2" BorderBrush="#e53e3e" FontSize="11" Padding="5,5" Classes="export"/>
       </StackPanel>
     </ScrollViewer>
 

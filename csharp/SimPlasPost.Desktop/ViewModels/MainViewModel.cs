@@ -192,18 +192,6 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     // ─── Export ───
-    public string ExportSvg(int w = 800, int h = 600)
-    {
-        var scene = BuildScene(w, h);
-        return scene != null ? SvgExporter.Export(scene) : "";
-    }
-
-    public string ExportEps(int w = 800, int h = 600)
-    {
-        var scene = BuildScene(w, h);
-        return scene != null ? EpsExporter.Export(scene) : "";
-    }
-
     public byte[] ExportPdf(int w = 800, int h = 600)
     {
         var scene = BuildScene(w, h);
