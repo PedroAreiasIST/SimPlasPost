@@ -81,6 +81,7 @@ public class MeshViewport : Control
     {
         if (_vm?.MeshData == null) return;
         var mesh = _vm.MeshData;
+        bool meshChanged = mesh != _cachedMesh;
         var dMode = _vm.DisplayMode_;
         _cachedMesh = mesh; _cachedField = _vm.ActiveField;
         _cachedShowDef = _vm.ShowDef; _cachedDefScale = _vm.DefScale;

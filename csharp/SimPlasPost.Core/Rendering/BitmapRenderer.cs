@@ -28,12 +28,6 @@ public static class BitmapRenderer
             int nv = end - start;
             if (nv < 3) continue;
 
-            // Skip faces with any vertex behind camera
-            bool skip = false;
-            for (int j = start; j < end; j++)
-                if (sz[faceVertices[j]] <= 0) { skip = true; break; }
-            if (skip) continue;
-
             int v0 = faceVertices[start];
             for (int t = 1; t < nv - 1; t++)
             {
@@ -63,7 +57,6 @@ public static class BitmapRenderer
             for (int j = 0; j < nv; j++)
             {
                 int a = faceVertices[start + j], b = faceVertices[start + (j + 1) % nv];
-                if (sz[a] <= 0 || sz[b] <= 0) continue;
                 float ax = sx[a], ay = sy[a], bx = sx[b], by = sy[b];
                 if ((ax < -2 && bx < -2) || (ax > w + 2 && bx > w + 2)) continue;
                 if ((ay < -2 && by < -2) || (ay > h + 2 && by > h + 2)) continue;
