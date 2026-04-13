@@ -1,11 +1,16 @@
 namespace SimPlasPost.Core.Rendering;
 
 /// <summary>
-/// High-performance software rasterizer with front-face culling for edges.
-/// Only draws wireframe edges on faces that face the camera.
+/// Software rasterizer with polygon offset for clean wireframe rendering.
+/// Faces are pushed back slightly in z so edges on front faces always win
+/// the depth test, while back-face edges remain occluded.
 /// </summary>
 public static class BitmapRenderer
 {
+    // Polygon offset: faces are stored at z + offset in the zbuffer.
+    // Edges use true z, so they pass on their own face but not on far faces.
+    private const float PolygonOffset = 0.005f;
+
     public static void RenderFaces(
         uint[] pixels, float[] zbuf, int w, int h,
         float[] sx, float[] sy, float[] sz,
@@ -29,14 +34,18 @@ public static class BitmapRenderer
             for (int t = 1; t < nv - 1; t++)
             {
                 int v1 = faceVertices[start + t], v2 = faceVertices[start + t + 1];
-                RasterTri(pixels, zbuf, w, h, x0, y0, z0, sx[v1], sy[v1], sz[v1], sx[v2], sy[v2], sz[v2], color);
+                RasterTri(pixels, zbuf, w, h,
+                    x0, y0, z0 + PolygonOffset,
+                    sx[v1], sy[v1], sz[v1] + PolygonOffset,
+                    sx[v2], sy[v2], sz[v2] + PolygonOffset, color);
             }
         }
     }
 
     /// <summary>
-    /// Render wireframe edges, but ONLY for front-facing faces.
-    /// Uses the screen-space cross product to determine face orientation.
+    /// Render wireframe edges with strict z-test (no offset).
+    /// Thanks to polygon offset on faces, edges pass on their own face
+    /// but are occluded by faces in front.
     /// </summary>
     public static void RenderEdges(
         uint[] pixels, int w, int h,
@@ -48,15 +57,9 @@ public static class BitmapRenderer
         for (int fi = 0; fi < nFaces; fi++)
         {
             if (!drawEdges[fi]) continue;
-
             int start = faceOffsets[fi], end = faceOffsets[fi + 1];
             int nv = end - start;
-            if (nv < 3) continue;
-
-            // Check if face is front-facing (screen-space winding: CCW = front)
-            int v0 = faceVertices[start], v1 = faceVertices[start + 1], v2 = faceVertices[start + 2];
-            float cross = (sx[v1] - sx[v0]) * (sy[v2] - sy[v0]) - (sy[v1] - sy[v0]) * (sx[v2] - sx[v0]);
-            if (cross >= 0) continue; // back-facing, skip edges
+            if (nv < 2) continue;
 
             for (int j = 0; j < nv; j++)
             {
@@ -129,8 +132,7 @@ public static class BitmapRenderer
             {
                 float z = az + (bz - az) * s * invS;
                 int idx = y0 * w + x0;
-                // Strict z-test: edge must be AT or IN FRONT of face
-                if (z <= zb[idx]) px[idx] = col;
+                if (z <= zb[idx]) px[idx] = col; // strict: edge at true z vs face at z+offset
             }
             int e2 = 2 * err;
             if (e2 > -dyi) { err -= dyi; x0 += sxi; }
