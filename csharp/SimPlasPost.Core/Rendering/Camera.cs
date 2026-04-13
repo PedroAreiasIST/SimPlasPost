@@ -34,17 +34,15 @@ public static class Camera
 
     /// <summary>
     /// Project a 3D vertex to screen coordinates using orthographic projection.
-    /// Returns [screenX, screenY, depth] or null if behind camera.
+    /// Returns [screenX, screenY, depth]. No near-plane clipping (ortho has none).
     /// </summary>
-    public static double[]? Project(double[] v, CameraState cam, double orthoHalfHeight, int w, int h)
+    public static double[] Project(double[] v, CameraState cam, double orthoHalfHeight, int w, int h)
     {
         var vtx = new Vec3(v[0], v[1], v[2]);
         var rel = vtx - cam.Eye;
         double x = Vec3.Dot(rel, cam.Right);
         double y = Vec3.Dot(rel, cam.Up);
         double z = Vec3.Dot(rel, cam.Forward);
-
-        if (z < 0.01) return null;
 
         double scale = h / (2.0 * orthoHalfHeight);
         return new[] { w / 2.0 + x * scale, h / 2.0 - y * scale, z };

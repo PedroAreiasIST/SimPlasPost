@@ -85,18 +85,12 @@ public static class SceneBuilder
         foreach (var face in bfaces)
         {
             var pts = new double[face.Length][];
-            bool anyNull = false;
             for (int i = 0; i < face.Length; i++)
-            {
-                var projected = Camera.Project(dp[face[i]], cam, orthoHH, w, h);
-                if (projected == null) { anyNull = true; break; }
-                pts[i] = projected;
-            }
-            if (anyNull) continue;
+                pts[i] = Camera.Project(dp[face[i]], cam, orthoHH, w, h);
 
-            var screenPts = pts.Select(p => new[] { p![0], p[1] }).ToArray();
-            var pts3D = pts.Select(p => new[] { p![0], p[1], p[2] }).ToArray();
-            double avgZ = pts.Average(p => p![2]);
+            var screenPts = pts.Select(p => new[] { p[0], p[1] }).ToArray();
+            var pts3D = pts.Select(p => new[] { p[0], p[1], p[2] }).ToArray();
+            double avgZ = pts.Average(p => p[2]);
 
             double r, g, b;
             if (dMode == DisplayMode.Wireframe)
@@ -153,7 +147,7 @@ public static class SceneBuilder
                 var b3 = new[] { featPos[k + 3], featPos[k + 4], featPos[k + 5] };
                 var pa = Camera.Project(a3, cam, orthoHH, w, h);
                 var pb = Camera.Project(b3, cam, orthoHH, w, h);
-                if (pa != null && pb != null && ZBufferRenderer.IsSegmentVisible(pa, pb, zbuf, w, h))
+                if (ZBufferRenderer.IsSegmentVisible(pa, pb, zbuf, w, h))
                     visibleEdges.Add(new ProjectedEdge { P1 = new[] { pa[0], pa[1] }, P2 = new[] { pb[0], pb[1] } });
             }
         }
@@ -168,7 +162,7 @@ public static class SceneBuilder
             {
                 var pa = Camera.Project(seg.A, cam, orthoHH, w, h);
                 var pb = Camera.Project(seg.B, cam, orthoHH, w, h);
-                if (pa != null && pb != null && ZBufferRenderer.IsSegmentVisible(pa, pb, zbuf, w, h))
+                if (ZBufferRenderer.IsSegmentVisible(pa, pb, zbuf, w, h))
                 {
                     double t = (seg.Level - efMin) / efSpan;
                     var (cr, cg, cb) = TurboColormap.Sample(t);
