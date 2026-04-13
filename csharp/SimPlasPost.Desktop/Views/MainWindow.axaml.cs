@@ -104,9 +104,9 @@ public partial class MainWindow : Window
         PnlContourN.IsVisible = _vm.DisplayMode_ == DisplayMode.Lines;
     }
 
-    private void OnContourNChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    private void OnContourNChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
-        if (e.Property.Name == "Value" && _vm != null)
+        if (_vm != null)
         {
             _vm.ContourN = (int)SlContourN.Value;
             UpdateContourNLabel();
@@ -146,9 +146,9 @@ public partial class MainWindow : Window
     private void OnShowDefChanged(object? sender, RoutedEventArgs e) =>
         _vm.ShowDef = CbShowDef.IsChecked == true;
 
-    private void OnDefScaleChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    private void OnDefScaleChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
-        if (e.Property.Name == "Value" && _vm != null)
+        if (_vm != null)
         {
             _vm.DefScale = SlDefScale.Value;
             UpdateDefScaleLabel();

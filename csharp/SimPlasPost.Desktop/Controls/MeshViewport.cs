@@ -23,9 +23,8 @@ public class MeshViewport : Control
     private int _mouseButton; // 0=left, 1=right
     private Point _lastMouse;
 
-    // Touch state
+    // Touch state (reserved for pinch-zoom support)
     private readonly Dictionary<long, Point> _touches = new();
-    private double _pinchDist;
 
     // Momentum animation
     private DispatcherTimer? _momentumTimer;
