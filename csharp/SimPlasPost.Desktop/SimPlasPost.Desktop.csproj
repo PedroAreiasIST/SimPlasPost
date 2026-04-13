@@ -20,8 +20,4 @@
   <ItemGroup>
     <ProjectReference Include="..\SimPlasPost.Core\SimPlasPost.Core.csproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <AvaloniaResource Include="Fonts\*.otf" />
-  </ItemGroup>
 </Project>

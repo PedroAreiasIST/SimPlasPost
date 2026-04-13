@@ -15,7 +15,8 @@ namespace SimPlasPost.Desktop.Controls;
 /// </summary>
 public class MeshViewport : Control
 {
-    private static readonly FontFamily SciFont = new("avares://SimPlasPost.Desktop/Fonts#STIX Two Text");
+    // System font fallback chain: best scientific font available on the system
+    private static readonly FontFamily SciFont = new("STIX Two Text, CMU Serif, Latin Modern Roman, Times New Roman, serif");
     private static readonly Typeface SciBold = new(SciFont, FontStyle.Normal, FontWeight.Bold);
 
     private MainViewModel? _vm;
