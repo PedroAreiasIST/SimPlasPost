@@ -36,7 +36,7 @@
         <StackPanel x:Name="PnlContourN" IsVisible="False" Margin="0,4,0,0">
           <TextBlock x:Name="TxtContourN" FontSize="10" Foreground="#667788"/>
           <Slider x:Name="SlContourN" Minimum="3" Maximum="30" Value="10" IsSnapToTickEnabled="True" TickFrequency="1"
-                  PropertyChanged="OnContourNChanged"/>
+                  ValueChanged="OnContourNChanged"/>
         </StackPanel>
 
         <!-- Field -->
@@ -60,7 +60,7 @@
         <TextBlock Text="Deformation" Foreground="#4a9eff" FontSize="11" FontWeight="SemiBold" Margin="0,10,0,4"/>
         <CheckBox x:Name="CbShowDef" Content="Deformed shape" FontSize="11" Foreground="#c8cdd5" Click="OnShowDefChanged"/>
         <TextBlock x:Name="TxtDefScale" FontSize="10" Foreground="#667788" Margin="0,2,0,0"/>
-        <Slider x:Name="SlDefScale" Minimum="0" Maximum="20" Value="1" PropertyChanged="OnDefScaleChanged"/>
+        <Slider x:Name="SlDefScale" Minimum="0" Maximum="20" Value="1" ValueChanged="OnDefScaleChanged"/>
 
         <!-- View Presets -->
         <TextBlock Text="View" Foreground="#4a9eff" FontSize="11" FontWeight="SemiBold" Margin="0,10,0,4"/>
@@ -115,7 +115,7 @@
     </ScrollViewer>
 
     <!-- Main viewport -->
-    <controls:MeshViewport x:Name="Viewport" Background="White" Focusable="True"/>
+    <controls:MeshViewport x:Name="Viewport" Focusable="True"/>
   </DockPanel>
 
   <Window.Styles>

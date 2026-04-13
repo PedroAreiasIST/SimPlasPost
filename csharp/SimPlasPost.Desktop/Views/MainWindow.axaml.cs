@@ -54,44 +54,58 @@ public partial class MainWindow : Window
     // ─── File loading ───
     private async void OnLoadEnsight(object? sender, RoutedEventArgs e)
     {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        try
         {
-            Title = "Open Ensight Files",
-            AllowMultiple = true,
-            FileTypeFilter = new[]
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
-                new FilePickerFileType("Ensight Files") { Patterns = new[] { "*.case", "*.geo", "*.geom", "*.scl", "*.vec", "*.ens" } },
-                new FilePickerFileType("All Files") { Patterns = new[] { "*.*" } },
-            },
-        });
+                Title = "Open Ensight Files",
+                AllowMultiple = true,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("Ensight Files") { Patterns = new[] { "*.case", "*.geo", "*.geom", "*.scl", "*.vec", "*.ens" } },
+                    new FilePickerFileType("All Files") { Patterns = new[] { "*.*" } },
+                },
+            });
 
-        if (files.Count == 0) return;
-        var contents = new Dictionary<string, string>();
-        foreach (var f in files)
-        {
-            await using var stream = await f.OpenReadAsync();
-            using var reader = new StreamReader(stream);
-            contents[f.Name] = await reader.ReadToEndAsync();
+            if (files.Count == 0) return;
+            var contents = new Dictionary<string, string>();
+            foreach (var f in files)
+            {
+                await using var stream = await f.OpenReadAsync();
+                using var reader = new StreamReader(stream);
+                contents[f.Name] = await reader.ReadToEndAsync();
+            }
+            _vm.LoadEnsightFiles(contents);
         }
-        _vm.LoadEnsightFiles(contents);
+        catch (Exception ex)
+        {
+            _vm.Log = $"Error reading files: {ex.Message}";
+        }
     }
 
     private async void OnLoadJson(object? sender, RoutedEventArgs e)
     {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        try
         {
-            Title = "Open JSON Mesh",
-            AllowMultiple = false,
-            FileTypeFilter = new[]
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
-                new FilePickerFileType("JSON") { Patterns = new[] { "*.json" } },
-            },
-        });
+                Title = "Open JSON Mesh",
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("JSON") { Patterns = new[] { "*.json" } },
+                },
+            });
 
-        if (files.Count == 0) return;
-        await using var stream = await files[0].OpenReadAsync();
-        using var reader = new StreamReader(stream);
-        _vm.LoadJsonMesh(await reader.ReadToEndAsync());
+            if (files.Count == 0) return;
+            await using var stream = await files[0].OpenReadAsync();
+            using var reader = new StreamReader(stream);
+            _vm.LoadJsonMesh(await reader.ReadToEndAsync());
+        }
+        catch (Exception ex)
+        {
+            _vm.Log = $"Error reading file: {ex.Message}";
+        }
     }
 
     // ─── Display mode ───
@@ -104,9 +118,9 @@ public partial class MainWindow : Window
         PnlContourN.IsVisible = _vm.DisplayMode_ == DisplayMode.Lines;
     }
 
-    private void OnContourNChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    private void OnContourNChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
-        if (e.Property.Name == "Value" && _vm != null)
+        if (_vm != null)
         {
             _vm.ContourN = (int)SlContourN.Value;
             UpdateContourNLabel();
@@ -146,9 +160,9 @@ public partial class MainWindow : Window
     private void OnShowDefChanged(object? sender, RoutedEventArgs e) =>
         _vm.ShowDef = CbShowDef.IsChecked == true;
 
-    private void OnDefScaleChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    private void OnDefScaleChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
-        if (e.Property.Name == "Value" && _vm != null)
+        if (_vm != null)
         {
             _vm.DefScale = SlDefScale.Value;
             UpdateDefScaleLabel();

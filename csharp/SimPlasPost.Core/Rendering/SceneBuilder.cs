@@ -88,14 +88,15 @@ public static class SceneBuilder
             bool anyNull = false;
             for (int i = 0; i < face.Length; i++)
             {
-                pts[i] = Camera.Project(dp[face[i]], cam, orthoHH, w, h)!;
-                if (pts[i] == null) { anyNull = true; break; }
+                var projected = Camera.Project(dp[face[i]], cam, orthoHH, w, h);
+                if (projected == null) { anyNull = true; break; }
+                pts[i] = projected;
             }
             if (anyNull) continue;
 
-            var screenPts = pts.Select(p => new[] { p[0], p[1] }).ToArray();
-            var pts3D = pts.Select(p => new[] { p[0], p[1], p[2] }).ToArray();
-            double avgZ = pts.Average(p => p[2]);
+            var screenPts = pts.Select(p => new[] { p![0], p[1] }).ToArray();
+            var pts3D = pts.Select(p => new[] { p![0], p[1], p[2] }).ToArray();
+            double avgZ = pts.Average(p => p![2]);
 
             double r = 0.75, g = 0.78, b = 0.82;
             if (fv != null)

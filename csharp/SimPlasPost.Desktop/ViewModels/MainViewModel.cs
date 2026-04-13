@@ -161,7 +161,7 @@ public class MainViewModel : INotifyPropertyChanged
         try
         {
             var d = System.Text.Json.JsonSerializer.Deserialize<JsonMeshDto>(json);
-            if (d?.nodes == null || d.elements == null) throw new Exception("Missing nodes or elements");
+            if (d == null || d.nodes == null || d.elements == null) throw new Exception("Missing nodes or elements");
 
             var mesh = new MeshData
             {
@@ -318,8 +318,8 @@ public class MainViewModel : INotifyPropertyChanged
     }
 }
 
-// ─── JSON mesh DTO ───
-file class JsonMeshDto
+// ─── JSON mesh DTOs (internal to avoid polluting public API) ───
+internal class JsonMeshDto
 {
     public double[][]? nodes { get; set; }
     public JsonElementDto[]? elements { get; set; }
@@ -327,13 +327,13 @@ file class JsonMeshDto
     public Dictionary<string, JsonFieldDto>? fields { get; set; }
 }
 
-file class JsonElementDto
+internal class JsonElementDto
 {
     public string? type { get; set; }
     public int[]? conn { get; set; }
 }
 
-file class JsonFieldDto
+internal class JsonFieldDto
 {
     public string? type { get; set; }
     public double[]? values { get; set; }
