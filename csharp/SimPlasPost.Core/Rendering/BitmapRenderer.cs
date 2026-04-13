@@ -27,15 +27,21 @@ public static class BitmapRenderer
             int nv = end - start;
             if (nv < 3) continue;
 
+            // Skip faces with any vertex behind camera
+            bool anyBehind = false;
+            for (int j = start; j < end; j++)
+                if (sz[faceVertices[j]] <= 0) { anyBehind = true; break; }
+            if (anyBehind) continue;
+
             uint color = 0xFF000000u | ((uint)faceR[fi] << 16) | ((uint)faceG[fi] << 8) | faceB[fi];
             int v0 = faceVertices[start];
-            float x0 = sx[v0], y0 = sy[v0], z0 = sz[v0];
+            float x0 = sx[v0], y0 = sy[v0], z0 = sz[v0] + PolygonOffset;
 
             for (int t = 1; t < nv - 1; t++)
             {
                 int v1 = faceVertices[start + t], v2 = faceVertices[start + t + 1];
                 RasterTri(pixels, zbuf, w, h,
-                    x0, y0, z0 + PolygonOffset,
+                    x0, y0, z0,
                     sx[v1], sy[v1], sz[v1] + PolygonOffset,
                     sx[v2], sy[v2], sz[v2] + PolygonOffset, color);
             }
@@ -54,6 +60,7 @@ public static class BitmapRenderer
         uint edgeColor, float[] zbuf)
     {
         int nFaces = faceOffsets.Length - 1;
+        float margin = 2f; // pixels outside viewport to still draw
         for (int fi = 0; fi < nFaces; fi++)
         {
             if (!drawEdges[fi]) continue;
@@ -65,7 +72,16 @@ public static class BitmapRenderer
             {
                 int a = faceVertices[start + j];
                 int b = faceVertices[start + (j + 1) % nv];
-                DrawLine(pixels, zbuf, w, h, sx[a], sy[a], sz[a], sx[b], sy[b], sz[b], edgeColor);
+
+                // Skip edges with vertices behind camera
+                if (sz[a] <= 0 || sz[b] <= 0) continue;
+
+                // Skip edges where both endpoints are off-screen
+                float ax = sx[a], ay = sy[a], bx = sx[b], by = sy[b];
+                if ((ax < -margin && bx < -margin) || (ax > w + margin && bx > w + margin)) continue;
+                if ((ay < -margin && by < -margin) || (ay > h + margin && by > h + margin)) continue;
+
+                DrawLine(pixels, zbuf, w, h, ax, ay, sz[a], bx, by, sz[b], edgeColor);
             }
         }
     }
