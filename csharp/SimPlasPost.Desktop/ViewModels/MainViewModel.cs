@@ -194,8 +194,65 @@ public class MainViewModel : INotifyPropertyChanged
     // ─── Export ───
     public byte[] ExportPdf(int w = 800, int h = 600)
     {
-        var scene = BuildScene(w, h);
+        if (MeshData == null) return Array.Empty<byte>();
+
+        // Auto-fit: use a temporary camera copy with zoom-to-fit for the export aspect ratio
+        var exportCam = Camera.Clone();
+        AutoFitCamera(exportCam, w / (double)h);
+
+        double? eMin = double.TryParse(UserMin, out var mn) ? mn : null;
+        double? eMax = double.TryParse(UserMax, out var mx) ? mx : null;
+        var scene = SceneBuilder.Build(MeshData, ActiveField, ShowDef, DefScale,
+            exportCam, w, h, DisplayMode_, ContourN, eMin, eMax);
         return scene != null ? PdfExporter.Export(scene) : Array.Empty<byte>();
+    }
+
+    /// <summary>Fit the camera so the full mesh is visible at the given aspect ratio.</summary>
+    private void AutoFitCamera(CameraParams cam, double aspect)
+    {
+        if (MeshData == null) return;
+        var ns = MeshData.Nodes;
+        double mnX = double.MaxValue, mnY = double.MaxValue, mnZ = double.MaxValue;
+        double mxX = double.MinValue, mxY = double.MinValue, mxZ = double.MinValue;
+        foreach (var n in ns)
+        {
+            mnX = Math.Min(mnX, n[0]); mxX = Math.Max(mxX, n[0]);
+            mnY = Math.Min(mnY, n[1]); mxY = Math.Max(mxY, n[1]);
+            mnZ = Math.Min(mnZ, n[2]); mxZ = Math.Max(mxZ, n[2]);
+        }
+        double cenX = (mnX + mxX) / 2, cenY = (mnY + mxY) / 2, cenZ = (mnZ + mxZ) / 2;
+        double span = Math.Max(Math.Max(mxX - mnX, mxY - mnY), Math.Max(mxZ - mnZ, 1e-12));
+        double sc = 2.0 / span;
+        double bbMnX = (mnX - cenX) * sc, bbMnY = (mnY - cenY) * sc, bbMnZ = (mnZ - cenZ) * sc;
+        double bbMxX = (mxX - cenX) * sc, bbMxY = (mxY - cenY) * sc, bbMxZ = (mxZ - cenZ) * sc;
+
+        var rot = cam.Rot;
+        double[] right = { rot[0], rot[1], rot[2] };
+        double[] upC = { rot[3], rot[4], rot[5] };
+
+        double x0 = double.MaxValue, x1 = double.MinValue, y0 = double.MaxValue, y1 = double.MinValue;
+        for (int ix = 0; ix < 2; ix++)
+        for (int iy = 0; iy < 2; iy++)
+        for (int iz = 0; iz < 2; iz++)
+        {
+            double px = ix == 1 ? bbMxX : bbMnX;
+            double py = iy == 1 ? bbMxY : bbMnY;
+            double pz = iz == 1 ? bbMxZ : bbMnZ;
+            double vx = px * right[0] + py * right[1] + pz * right[2];
+            double vy = px * upC[0] + py * upC[1] + pz * upC[2];
+            x0 = Math.Min(x0, vx); x1 = Math.Max(x1, vx);
+            y0 = Math.Min(y0, vy); y1 = Math.Max(y1, vy);
+        }
+
+        double viewW = x1 - x0, viewH = y1 - y0;
+        double viewCx = (x0 + x1) / 2, viewCy = (y0 + y1) / 2;
+        // Reserve ~20% width for color bar when a field is active
+        double cbExtra = !string.IsNullOrEmpty(ActiveField) ? 1.25 : 1.0;
+        double pad = 1.12; // 12% padding so mesh doesn't touch edges
+
+        cam.Dist = Math.Max(viewH / 2 * pad, Math.Max(viewW / 2 * pad * cbExtra / aspect, 0.3));
+        cam.Tx = !string.IsNullOrEmpty(ActiveField) ? viewCx - cam.Dist * aspect * 0.08 : viewCx;
+        cam.Ty = viewCy;
     }
 
     // ─── Views ───
