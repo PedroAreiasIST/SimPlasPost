@@ -260,8 +260,11 @@ public class MeshViewport : Control
         {
             double dx = pos.X - _lastMouse.X;
             double dy = pos.Y - _lastMouse.Y;
-            cam.Tx += dx * 0.003 * cam.Dist;
-            cam.Ty -= dy * 0.003 * cam.Dist;
+            // Scale pan speed by viewport size for consistent feel
+            double viewSize = Math.Max(Bounds.Width, Bounds.Height);
+            double panScale = 2.0 * cam.Dist / viewSize;
+            cam.Tx += dx * panScale;
+            cam.Ty -= dy * panScale;
         }
         else
         {
@@ -292,8 +295,9 @@ public class MeshViewport : Control
     {
         base.OnPointerWheelChanged(e);
         if (_vm == null) return;
-        _vm.Camera.Dist *= e.Delta.Y < 0 ? 1.08 : 0.92;
-        _vm.Camera.Dist = Math.Clamp(_vm.Camera.Dist, 0.3, 20);
+        // Finer zoom steps (3% per tick instead of 8%)
+        _vm.Camera.Dist *= e.Delta.Y < 0 ? 1.03 : (1.0 / 1.03);
+        _vm.Camera.Dist = Math.Clamp(_vm.Camera.Dist, 0.1, 50);
         RebuildScene();
         e.Handled = true;
     }

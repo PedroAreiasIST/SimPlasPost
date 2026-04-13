@@ -70,4 +70,6 @@ public class ExportScene
     public double FMax { get; set; }
     public int W { get; set; }
     public int H { get; set; }
+    public DisplayMode Mode { get; set; }
+    public double[] Rotation { get; set; } = CameraParams.Identity(); // 3x3 for triad
 }

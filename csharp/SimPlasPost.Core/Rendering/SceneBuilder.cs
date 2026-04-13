@@ -99,7 +99,7 @@ public static class SceneBuilder
             double avgZ = pts.Average(p => p![2]);
 
             double r = 0.75, g = 0.78, b = 0.82;
-            if (fv != null)
+            if (fv != null && dMode != DisplayMode.Wireframe)
             {
                 double avgF = face.Sum(ni => fv[ni]) / (double)face.Length;
                 double t = (avgF - efMin) / efSpan;
@@ -182,10 +182,14 @@ public static class SceneBuilder
         int nEdges = bfaces.Sum(f => f.Length);
         var lp = LinePreset.Auto(nEdges);
 
+        // Wireframe mode: no color bar, no field coloring
+        string? displayFieldName = dMode == DisplayMode.Wireframe ? null : activeField;
+
         return new ExportScene
         {
             Faces = exportFaces, VisibleEdges = visibleEdges, Contours = contours,
-            Lp = lp, FieldName = activeField, FMin = efMin, FMax = efMax, W = w, H = h,
+            Lp = lp, FieldName = displayFieldName, FMin = efMin, FMax = efMax,
+            W = w, H = h, Mode = dMode, Rotation = camParams.Rot,
         };
     }
 }

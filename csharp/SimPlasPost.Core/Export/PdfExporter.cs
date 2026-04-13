@@ -107,6 +107,9 @@ public static class PdfExporter
             stream.AppendLine($"BT /F1 {fnSize} Tf 0 1 -1 0 {F2(tx)} {F2(ty)} Tm ({name}) Tj ET");
         }
 
+        // Axis triad (bottom-left corner, PDF coordinates: origin at bottom-left)
+        DrawTriad(stream, scene.Rotation, 50, 50, 30);
+
         var content = stream.ToString();
         var contentBytes = Encoding.Latin1.GetBytes(content);
 
@@ -144,6 +147,48 @@ public static class PdfExporter
         Write($"startxref\n{xrefOff}\n%%EOF");
 
         return pdfBytes.ToArray();
+    }
+
+    /// <summary>Draw an axis triad at (cx, cy) in PDF coordinates.</summary>
+    private static void DrawTriad(StringBuilder s, double[] rot, double cx, double cy, double axLen)
+    {
+        var axes = new (double dx, double dy, string r, string g, string b, string label)[]
+        {
+            // X axis (1,0,0): screen dx = rot[0]*axLen, screen dy = rot[3]*axLen (up in PDF = +Y)
+            (rot[0] * axLen,  rot[3] * axLen, "0.86", "0.16", "0.16", "X1"),
+            // Y axis (0,1,0)
+            (rot[1] * axLen,  rot[4] * axLen, "0.16", "0.67", "0.16", "X2"),
+            // Z axis (0,0,1)
+            (rot[2] * axLen,  rot[5] * axLen, "0.16", "0.31", "0.86", "X3"),
+        };
+
+        foreach (var (dx, dy, cr, cg, cb, label) in axes)
+        {
+            double tipX = cx + dx, tipY = cy + dy;
+            // Arrow shaft
+            s.AppendLine($"{cr} {cg} {cb} RG 1.5 w 1 J");
+            s.AppendLine($"{F2(cx)} {F2(cy)} m {F2(tipX)} {F2(tipY)} l S");
+
+            // Arrowhead (filled triangle)
+            double len = Math.Sqrt(dx * dx + dy * dy);
+            if (len > 3)
+            {
+                double ux = dx / len, uy = dy / len;
+                double px = -uy, py = ux;
+                double hs = 5;
+                double h1x = tipX - ux * hs + px * hs * 0.35;
+                double h1y = tipY - uy * hs + py * hs * 0.35;
+                double h2x = tipX - ux * hs - px * hs * 0.35;
+                double h2y = tipY - uy * hs - py * hs * 0.35;
+                s.AppendLine($"{cr} {cg} {cb} rg");
+                s.AppendLine($"{F2(tipX)} {F2(tipY)} m {F2(h1x)} {F2(h1y)} l {F2(h2x)} {F2(h2y)} l h f");
+            }
+
+            // Label
+            double lx = tipX + (len > 3 ? dx / len * 8 : 4);
+            double ly = tipY + (len > 3 ? dy / len * 8 : 4) - 3;
+            s.AppendLine($"BT /F1 8 Tf {cr} {cg} {cb} rg 1 0 0 1 {F2(lx)} {F2(ly)} Tm ({Escape(label)}) Tj ET");
+        }
     }
 
     private static string F(double v) => v.ToString("F4", CultureInfo.InvariantCulture);
