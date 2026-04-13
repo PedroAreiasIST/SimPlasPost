@@ -41,6 +41,7 @@ public static class EnsightParser
             if (section == "g" && Regex.IsMatch(line, @"^model:", RegexOptions.IgnoreCase))
             {
                 var parts = Regex.Replace(line, @"^model:\s*", "", RegexOptions.IgnoreCase).Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 0) continue;
                 result.GeoFile = parts.Length > 1 && Regex.IsMatch(parts[0], @"^\d+$") ? parts[1] : parts[0];
             }
 

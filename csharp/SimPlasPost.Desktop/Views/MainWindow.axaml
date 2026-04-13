@@ -1,7 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="using:SimPlasPost.Desktop.Controls"
-        xmlns:vm="using:SimPlasPost.Desktop.ViewModels"
         x:Class="SimPlasPost.Desktop.Views.MainWindow"
         Title="SIMPLAS Viewer" Width="1100" Height="700"
         Background="#12141a">
@@ -93,7 +92,7 @@
         </StackPanel>
         <ItemsControl x:Name="IcSavedViews">
           <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:SavedView">
+            <DataTemplate>
               <StackPanel Orientation="Horizontal" Spacing="3" Margin="0,1">
                 <Button Content="{Binding Name}" Click="OnRestoreView" HorizontalAlignment="Stretch"
                         FontSize="9" Foreground="#aabbcc" Padding="3,2"/>
