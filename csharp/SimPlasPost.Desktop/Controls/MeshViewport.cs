@@ -84,7 +84,8 @@ public class MeshViewport : Panel
             Attitude = -20,
             Distance = 4f,
             ShowCameraLight = ShowCameraLightType.Auto,
-            ViewWidth = 5f, // orthographic width
+            ProjectionType = ProjectionTypes.Orthographic,
+            ViewWidth = 5f,
         };
         _sceneView.SceneView.Camera = _camera;
 
