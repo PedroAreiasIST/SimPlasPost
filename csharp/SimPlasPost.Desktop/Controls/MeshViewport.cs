@@ -183,8 +183,8 @@ public class MeshViewport : Control
         var rot = _vm.Camera.Rot;
 
         // Triad center in bottom-left corner
-        double cx = 50, cy = bounds.Height - 50;
-        double axLen = 32; // arrow length in pixels
+        double cx = 60, cy = bounds.Height - 60;
+        double axLen = 50; // arrow length in pixels
 
         // Axis directions in screen space via rotation matrix
         // Row 0 = right, Row 1 = up, Row 2 = forward
@@ -201,7 +201,7 @@ public class MeshViewport : Control
 
         foreach (var (dx, dy, color, label) in axes)
         {
-            var pen = new Pen(new SolidColorBrush(color), 2.0);
+            var pen = new Pen(new SolidColorBrush(color), 2.5);
             var tip = new Point(cx + dx, cy + dy);
             context.DrawLine(pen, new Point(cx, cy), tip);
 
@@ -211,7 +211,7 @@ public class MeshViewport : Control
             {
                 double ux = dx / len, uy = dy / len;
                 double px = -uy, py = ux; // perpendicular
-                double hs = 6; // head size
+                double hs = 10; // head size
                 var h1 = new Point(tip.X - ux * hs + px * hs * 0.4, tip.Y - uy * hs + py * hs * 0.4);
                 var h2 = new Point(tip.X - ux * hs - px * hs * 0.4, tip.Y - uy * hs - py * hs * 0.4);
                 var headGeom = new StreamGeometry();
@@ -227,9 +227,9 @@ public class MeshViewport : Control
 
             // Label at tip
             var labelText = new FormattedText(label, System.Globalization.CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight, SciBold, 11, new SolidColorBrush(color));
-            double labelOffX = len > 5 ? dx / len * 10 : 5;
-            double labelOffY = len > 5 ? dy / len * 10 : -5;
+                FlowDirection.LeftToRight, SciBold, 17, new SolidColorBrush(color));
+            double labelOffX = len > 5 ? dx / len * 14 : 7;
+            double labelOffY = len > 5 ? dy / len * 14 : -7;
             context.DrawText(labelText, new Point(
                 tip.X + labelOffX - labelText.Width / 2,
                 tip.Y + labelOffY - labelText.Height / 2));
@@ -260,11 +260,20 @@ public class MeshViewport : Control
         {
             double dx = pos.X - _lastMouse.X;
             double dy = pos.Y - _lastMouse.Y;
-            // Scale pan speed by viewport size for consistent feel
+            // Pan in screen space: move target along camera right/up vectors
             double viewSize = Math.Max(Bounds.Width, Bounds.Height);
             double panScale = 2.0 * cam.Dist / viewSize;
-            cam.Tx += dx * panScale;
-            cam.Ty -= dy * panScale;
+            var rot = cam.Rot;
+            // Camera right = rot row 0, camera up = rot row 1
+            double rx = rot[0], ry = rot[1], rz = rot[2]; // right
+            double ux = rot[3], uy = rot[4], uz = rot[5]; // up
+            double worldDx = (dx * rx - dy * ux) * panScale;
+            double worldDy = (dx * ry - dy * uy) * panScale;
+            double worldDz = (dx * rz - dy * uz) * panScale;
+            cam.Tx += worldDx;
+            cam.Ty += worldDy;
+            // Extend target to 3D for correct screen-space panning
+            cam.Tz += worldDz;
         }
         else
         {

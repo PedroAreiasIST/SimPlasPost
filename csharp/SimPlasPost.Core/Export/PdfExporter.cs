@@ -108,7 +108,7 @@ public static class PdfExporter
         }
 
         // Axis triad (bottom-left corner, PDF coordinates: origin at bottom-left)
-        DrawTriad(stream, scene.Rotation, 50, 50, 30);
+        DrawTriad(stream, scene.Rotation, 60, 60, 48);
 
         var content = stream.ToString();
         var contentBytes = Encoding.Latin1.GetBytes(content);
@@ -166,7 +166,7 @@ public static class PdfExporter
         {
             double tipX = cx + dx, tipY = cy + dy;
             // Arrow shaft
-            s.AppendLine($"{cr} {cg} {cb} RG 1.5 w 1 J");
+            s.AppendLine($"{cr} {cg} {cb} RG 2.5 w 1 J");
             s.AppendLine($"{F2(cx)} {F2(cy)} m {F2(tipX)} {F2(tipY)} l S");
 
             // Arrowhead (filled triangle)
@@ -175,7 +175,7 @@ public static class PdfExporter
             {
                 double ux = dx / len, uy = dy / len;
                 double px = -uy, py = ux;
-                double hs = 5;
+                double hs = 8;
                 double h1x = tipX - ux * hs + px * hs * 0.35;
                 double h1y = tipY - uy * hs + py * hs * 0.35;
                 double h2x = tipX - ux * hs - px * hs * 0.35;
@@ -185,9 +185,9 @@ public static class PdfExporter
             }
 
             // Label
-            double lx = tipX + (len > 3 ? dx / len * 8 : 4);
-            double ly = tipY + (len > 3 ? dy / len * 8 : 4) - 3;
-            s.AppendLine($"BT /F1 8 Tf {cr} {cg} {cb} rg 1 0 0 1 {F2(lx)} {F2(ly)} Tm ({Escape(label)}) Tj ET");
+            double lx = tipX + (len > 3 ? dx / len * 12 : 6);
+            double ly = tipY + (len > 3 ? dy / len * 12 : 6) - 4.5;
+            s.AppendLine($"BT /F1 13 Tf {cr} {cg} {cb} rg 1 0 0 1 {F2(lx)} {F2(ly)} Tm ({Escape(label)}) Tj ET");
         }
     }
 

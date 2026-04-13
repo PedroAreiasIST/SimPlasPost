@@ -89,7 +89,7 @@ public static class DemoMeshGenerator
 
     public static MeshData Gen3DBeam()
     {
-        int nx = 12, ny = 3, nz = 3;
+        int nx = 1000, ny = 50, nz = 20;
         double Lx = 4, Ly = 0.5, Lz = 0.5;
         var nodes = new List<double[]>();
         var elements = new List<Element>();

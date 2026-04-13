@@ -12,11 +12,12 @@ public class CameraParams
     public double Dist { get; set; } = 3.5;
     public double Tx { get; set; }
     public double Ty { get; set; }
+    public double Tz { get; set; }
 
     public CameraParams Clone() => new()
     {
         Rot = (double[])Rot.Clone(),
-        Dist = Dist, Tx = Tx, Ty = Ty,
+        Dist = Dist, Tx = Tx, Ty = Ty, Tz = Tz,
     };
 
     public void CopyFrom(CameraParams other)
@@ -25,6 +26,7 @@ public class CameraParams
         Dist = other.Dist;
         Tx = other.Tx;
         Ty = other.Ty;
+        Tz = other.Tz;
     }
 
     /// <summary>Build rotation matrix from spherical angles (for preset views).</summary>

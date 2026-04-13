@@ -25,8 +25,8 @@ public static class Camera
         var up = new Vec3(rot[3], rot[4], rot[5]);
         var fwd = new Vec3(rot[6], rot[7], rot[8]);
 
-        // Eye = target - forward * dist
-        var target = new Vec3(cp.Tx, cp.Ty, 0);
+        // Eye = target - forward * dist (target is 3D for screen-space panning)
+        var target = new Vec3(cp.Tx, cp.Ty, cp.Tz);
         var eye = target - fwd * cp.Dist;
 
         return new CameraState { Eye = eye, Forward = fwd, Right = right, Up = up };

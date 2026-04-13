@@ -251,8 +251,11 @@ public class MainViewModel : INotifyPropertyChanged
         double pad = 1.12; // 12% padding so mesh doesn't touch edges
 
         cam.Dist = Math.Max(viewH / 2 * pad, Math.Max(viewW / 2 * pad * cbExtra / aspect, 0.3));
-        cam.Tx = !string.IsNullOrEmpty(ActiveField) ? viewCx - cam.Dist * aspect * 0.08 : viewCx;
-        cam.Ty = viewCy;
+        // Offset center in view space for color bar, then convert back to world space
+        double adjCx = !string.IsNullOrEmpty(ActiveField) ? viewCx - cam.Dist * aspect * 0.08 : viewCx;
+        cam.Tx = adjCx * right[0] + viewCy * upC[0];
+        cam.Ty = adjCx * right[1] + viewCy * upC[1];
+        cam.Tz = adjCx * right[2] + viewCy * upC[2];
     }
 
     // ─── Views ───
@@ -333,8 +336,10 @@ public class MainViewModel : INotifyPropertyChanged
         double cbExtra = !string.IsNullOrEmpty(ActiveField) ? 1.25 : 1.0;
 
         c.Dist = Math.Max(viewH / 2 * 1.08, Math.Max(viewW / 2 * 1.08 * cbExtra / aspect, 0.3));
-        c.Tx = !string.IsNullOrEmpty(ActiveField) ? viewCx - c.Dist * aspect * 0.1 : viewCx;
-        c.Ty = viewCy;
+        double adjCx = !string.IsNullOrEmpty(ActiveField) ? viewCx - c.Dist * aspect * 0.1 : viewCx;
+        c.Tx = adjCx * right[0] + viewCy * upC[0];
+        c.Ty = adjCx * right[1] + viewCy * upC[1];
+        c.Tz = adjCx * right[2] + viewCy * upC[2];
 
         InvalidateScene();
     }
