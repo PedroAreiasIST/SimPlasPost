@@ -31,7 +31,37 @@ public class MainViewModel : INotifyPropertyChanged
 
     // ─── State ───
     private MeshData? _meshData;
-    public MeshData? MeshData { get => _meshData; set { if (Set(ref _meshData, value)) OnPropertyChanged(nameof(ScalarFields)); } }
+    public MeshData? MeshData
+    {
+        get => _meshData;
+        set
+        {
+            if (Set(ref _meshData, value))
+            {
+                OnPropertyChanged(nameof(ScalarFields));
+                OnPropertyChanged(nameof(StepCount));
+                OnPropertyChanged(nameof(CurrentStep));
+                OnPropertyChanged(nameof(HasSteps));
+            }
+        }
+    }
+
+    public int StepCount => MeshData?.StepCount ?? 1;
+    public bool HasSteps => StepCount > 1;
+
+    public int CurrentStep
+    {
+        get => MeshData?.CurrentStep ?? 0;
+        set
+        {
+            if (MeshData == null) return;
+            int clamped = Math.Max(0, Math.Min(value, MeshData.StepCount - 1));
+            if (clamped == MeshData.CurrentStep) return;
+            MeshData.SetCurrentStep(clamped);
+            OnPropertyChanged();
+            InvalidateScene();
+        }
+    }
 
     private int _activeDemo;
     public int ActiveDemo { get => _activeDemo; set { if (Set(ref _activeDemo, value)) LoadDemo(value); } }

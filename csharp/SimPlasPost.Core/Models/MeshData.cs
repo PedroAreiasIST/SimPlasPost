@@ -29,6 +29,10 @@ public class FieldData
     public bool IsVector { get; set; }
     public double[]? ScalarValues { get; set; }
     public double[][]? VectorValues { get; set; } // [nodeIndex] => [x, y, z]
+
+    // Per-step values (populated when the Ensight case has transient variables with "*" file patterns).
+    public List<double[]>? StepScalars { get; set; }
+    public List<double[][]>? StepVectors { get; set; }
 }
 
 public class MeshData
@@ -39,10 +43,39 @@ public class MeshData
     public List<Element> Elements { get; set; } = new();
     public Dictionary<string, FieldData> Fields { get; set; } = new();
 
+    // Multi-step (transient) support.
+    public int StepCount { get; set; } = 1;
+    public int CurrentStep { get; set; } = 0;
+    public List<string> StepLabels { get; set; } = new();
+
     public FieldData? GetDisplacementField()
     {
         if (Fields.TryGetValue("Displacement", out var f)) return f;
         if (Fields.TryGetValue("displacement", out f)) return f;
         return null;
+    }
+
+    /// <summary>
+    /// Switch all multi-step fields to the given step index. Fields that don't have
+    /// a corresponding entry keep their current values.
+    /// </summary>
+    public void SetCurrentStep(int step)
+    {
+        if (step < 0) step = 0;
+        if (step >= StepCount) step = StepCount - 1;
+        CurrentStep = step;
+        foreach (var f in Fields.Values)
+        {
+            if (f.IsVector)
+            {
+                if (f.StepVectors != null && f.StepVectors.Count > 0)
+                    f.VectorValues = f.StepVectors[Math.Min(step, f.StepVectors.Count - 1)];
+            }
+            else
+            {
+                if (f.StepScalars != null && f.StepScalars.Count > 0)
+                    f.ScalarValues = f.StepScalars[Math.Min(step, f.StepScalars.Count - 1)];
+            }
+        }
     }
 }

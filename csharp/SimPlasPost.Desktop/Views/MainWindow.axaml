@@ -39,6 +39,14 @@
                   ValueChanged="OnContourNChanged"/>
         </StackPanel>
 
+        <!-- Time Step -->
+        <StackPanel x:Name="PnlSteps" IsVisible="False" Margin="0,10,0,0">
+          <TextBlock Text="Time Step" Foreground="#4a9eff" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+          <TextBlock x:Name="TxtStep" FontSize="10" Foreground="#667788"/>
+          <Slider x:Name="SlStep" Minimum="0" Maximum="1" Value="0" IsSnapToTickEnabled="True" TickFrequency="1"
+                  ValueChanged="OnStepChanged"/>
+        </StackPanel>
+
         <!-- Field -->
         <TextBlock Text="Field" Foreground="#4a9eff" FontSize="11" FontWeight="SemiBold" Margin="0,10,0,4"/>
         <ComboBox x:Name="CbField" FontSize="11" HorizontalAlignment="Stretch" SelectionChanged="OnFieldChanged"/>

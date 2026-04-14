@@ -275,32 +275,76 @@ public static class EnsightParser
         mesh.Name = caseFile;
         mesh.Dim = 3;
 
-        // Load variables
+        // Load variables — when the file pattern contains '*', every matching
+        // file is loaded as a separate time step instead of just the last one.
+        int maxSteps = 1;
         foreach (var v in caseData.Variables)
         {
             string fn = v.File;
+            List<string> stepFiles;
+
             if (fn.Contains('*'))
             {
-                var pattern = new Regex(Regex.Escape(fn).Replace("\\*", @"(\d+)"));
-                var matches = fileContents.Keys.Where(n => pattern.IsMatch(n)).OrderBy(n => n).ToList();
-                if (matches.Count > 0) fn = matches[^1];
+                var pattern = new Regex("^" + Regex.Escape(fn).Replace("\\*", @"(\d+)") + "$");
+                stepFiles = fileContents.Keys
+                    .Where(n => pattern.IsMatch(n))
+                    .OrderBy(n => n, StringComparer.Ordinal)
+                    .ToList();
+            }
+            else
+            {
+                stepFiles = fileContents.ContainsKey(fn)
+                    ? new List<string> { fn }
+                    : new List<string>();
             }
 
-            if (!fileContents.ContainsKey(fn)) continue;
+            if (stepFiles.Count == 0) continue;
 
             if (v.VType == "scalar")
             {
-                var vals = ParseScalar(fileContents[fn], mesh.Nodes.Length);
-                if (vals.Length > 0)
-                    mesh.Fields[v.Name] = new FieldData { Name = v.Name, IsVector = false, ScalarValues = vals };
+                var steps = new List<double[]>();
+                foreach (var sf in stepFiles)
+                {
+                    var vals = ParseScalar(fileContents[sf], mesh.Nodes.Length);
+                    if (vals.Length > 0) steps.Add(vals);
+                }
+                if (steps.Count > 0)
+                {
+                    mesh.Fields[v.Name] = new FieldData
+                    {
+                        Name = v.Name,
+                        IsVector = false,
+                        ScalarValues = steps[0],
+                        StepScalars = steps,
+                    };
+                    if (steps.Count > maxSteps) maxSteps = steps.Count;
+                }
             }
             else if (v.VType == "vector")
             {
-                var vals = ParseVector(fileContents[fn], mesh.Nodes.Length);
-                if (vals.Length > 0)
-                    mesh.Fields[v.Name] = new FieldData { Name = v.Name, IsVector = true, VectorValues = vals };
+                var steps = new List<double[][]>();
+                foreach (var sf in stepFiles)
+                {
+                    var vals = ParseVector(fileContents[sf], mesh.Nodes.Length);
+                    if (vals.Length > 0) steps.Add(vals);
+                }
+                if (steps.Count > 0)
+                {
+                    mesh.Fields[v.Name] = new FieldData
+                    {
+                        Name = v.Name,
+                        IsVector = true,
+                        VectorValues = steps[0],
+                        StepVectors = steps,
+                    };
+                    if (steps.Count > maxSteps) maxSteps = steps.Count;
+                }
             }
         }
+
+        mesh.StepCount = maxSteps;
+        mesh.CurrentStep = 0;
+        mesh.SetCurrentStep(0);
 
         DetectDimension(mesh);
         return mesh;
