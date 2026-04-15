@@ -32,6 +32,7 @@ public class MeshViewport : Control
     private DisplayMode _cachedMode;
     private string? _cachedUserMin, _cachedUserMax;
     private int _cachedStep = -1;
+    private int _cachedContourN = -1;
 
     private float[] _posX = Array.Empty<float>(); // flat position arrays for speed
     private float[] _posY = Array.Empty<float>();
@@ -43,6 +44,12 @@ public class MeshViewport : Control
     private byte[] _vertR = Array.Empty<byte>();  // per-VERTEX colors for smooth interpolation
     private byte[] _vertG = Array.Empty<byte>();
     private byte[] _vertB = Array.Empty<byte>();
+
+    // ─── Line-mode overlays (feature edges + iso-contours) in world coordinates ───
+    // Flat arrays: 6 floats (ax,ay,az,bx,by,bz) per segment.
+    private float[] _featEdgePos = Array.Empty<float>();
+    private float[] _contourPos = Array.Empty<float>();
+    private uint[] _contourColors = Array.Empty<uint>();
 
     // ─── Frame buffers ───
     private WriteableBitmap? _bitmap;
@@ -76,7 +83,8 @@ public class MeshViewport : Control
         _vm.ShowDef != _cachedShowDef || _vm.DefScale != _cachedDefScale ||
         _vm.DisplayMode_ != _cachedMode ||
         _vm.UserMin != _cachedUserMin || _vm.UserMax != _cachedUserMax ||
-        _vm.CurrentStep != _cachedStep);
+        _vm.CurrentStep != _cachedStep ||
+        _vm.ContourN != _cachedContourN);
 
     /// <summary>Expensive: extract boundary, compute colors. Called rarely.</summary>
     private void RebuildGeometry()
@@ -89,6 +97,7 @@ public class MeshViewport : Control
         _cachedShowDef = _vm.ShowDef; _cachedDefScale = _vm.DefScale;
         _cachedMode = dMode; _cachedUserMin = _vm.UserMin; _cachedUserMax = _vm.UserMax;
         _cachedStep = _vm.CurrentStep;
+        _cachedContourN = _vm.ContourN;
 
         var ns = mesh.Nodes;
         float mnX = float.MaxValue, mnY = float.MaxValue, mnZ = float.MaxValue;
@@ -139,11 +148,14 @@ public class MeshViewport : Control
         double efSpan = Math.Abs(efMax - efMin) < 1e-15 ? 1 : efMax - efMin;
         _vm.FRangeMin = fmin; _vm.FRangeMax = fmax;
 
-        // Per-vertex colors (smooth interpolation across triangles)
+        // Per-vertex colors (smooth interpolation across triangles).
+        // Contour-Lines mode deactivates shading: faces are rendered white so
+        // only the iso-lines and the object silhouette/feature edges carry meaning.
         var vr = new byte[_nVerts]; var vg = new byte[_nVerts]; var vb = new byte[_nVerts];
+        bool whiteFaces = dMode == DisplayMode.Wireframe || dMode == DisplayMode.Lines;
         for (int i = 0; i < _nVerts; i++)
         {
-            if (dMode == DisplayMode.Wireframe) { vr[i] = 255; vg[i] = 255; vb[i] = 255; }
+            if (whiteFaces) { vr[i] = 255; vg[i] = 255; vb[i] = 255; }
             else if (fv != null && i < fv.Length)
             {
                 double t = (fv[i] - efMin) / efSpan;
@@ -170,6 +182,56 @@ public class MeshViewport : Control
         _faceOffsets = offsets; _faceVertices = verts;
         _vertR = vr; _vertG = vg; _vertB = vb;
         _drawEdges = showEdges;
+
+        // Contour-Lines mode: build the feature-edge (object contour) and
+        // iso-line geometry in world coordinates. These are projected per frame.
+        if (dMode == DisplayMode.Lines)
+        {
+            var dp = new double[_nVerts][];
+            for (int i = 0; i < _nVerts; i++)
+                dp[i] = new double[] { _posX[i], _posY[i], _posZ[i] };
+
+            var fed = FeatureEdgeDetector.Extract(bfaces, dp);
+            _featEdgePos = new float[fed.Length];
+            for (int i = 0; i < fed.Length; i++) _featEdgePos[i] = (float)fed[i];
+
+            if (fv != null)
+            {
+                int contourN = Math.Max(1, _vm.ContourN);
+                var raw = ContourGenerator.ComputeSegments(bfaces, dp, fv, efMin, efMax, contourN);
+                var smooth = ContourGenerator.Smooth(raw, 2);
+                int n = smooth.Count;
+                var pos = new float[n * 6];
+                var cols = new uint[n];
+                for (int i = 0; i < n; i++)
+                {
+                    var s = smooth[i];
+                    int b = i * 6;
+                    pos[b] = (float)s.A[0]; pos[b + 1] = (float)s.A[1]; pos[b + 2] = (float)s.A[2];
+                    pos[b + 3] = (float)s.B[0]; pos[b + 4] = (float)s.B[1]; pos[b + 5] = (float)s.B[2];
+                    double t = (s.Level - efMin) / efSpan;
+                    var (r, g, b2) = TurboColormap.Sample(t);
+                    cols[i] = 0xFF000000u
+                        | ((uint)(r * 255) << 16)
+                        | ((uint)(g * 255) << 8)
+                        | (uint)(b2 * 255);
+                }
+                _contourPos = pos;
+                _contourColors = cols;
+            }
+            else
+            {
+                _contourPos = Array.Empty<float>();
+                _contourColors = Array.Empty<uint>();
+            }
+        }
+        else
+        {
+            _featEdgePos = Array.Empty<float>();
+            _contourPos = Array.Empty<float>();
+            _contourColors = Array.Empty<uint>();
+        }
+
         InvalidateVisual();
     }
 
@@ -225,6 +287,18 @@ public class MeshViewport : Control
 
         BitmapRenderer.RenderFaces(pixels, zbuf, rw, rh, _sx!, _sy!, _sz!, _faceOffsets, _faceVertices, _vertR, _vertG, _vertB);
         BitmapRenderer.RenderEdges(pixels, rw, rh, _sx!, _sy!, _sz!, _faceOffsets, _faceVertices, _drawEdges, 0xFF222222, zbuf);
+
+        // Lines-mode overlays: silhouette/feature edges and iso-contour lines.
+        if (_featEdgePos.Length > 0)
+        {
+            var projFed = ProjectWorldSegments(_featEdgePos, ex, ey, ez, rrx, rry, rrz, urx, ury, urz, frx, fry, frz, scale, hw, hh);
+            BitmapRenderer.RenderSegments(pixels, zbuf, rw, rh, projFed, null, 0xFF222222);
+        }
+        if (_contourPos.Length > 0)
+        {
+            var projCon = ProjectWorldSegments(_contourPos, ex, ey, ez, rrx, rry, rrz, urx, ury, urz, frx, fry, frz, scale, hw, hh);
+            BitmapRenderer.RenderSegments(pixels, zbuf, rw, rh, projCon, _contourColors, 0xFF222222);
+        }
 
         // Downsample if supersampled, or use directly
         var output = _loPixels!;
@@ -303,6 +377,32 @@ public class MeshViewport : Control
             double lox = len > 5 ? dx / len * 14 : 7, loy = len > 5 ? dy / len * 14 : -7;
             ctx.DrawText(lt, new Point(tip.X + lox - lt.Width / 2, tip.Y + loy - lt.Height / 2));
         }
+    }
+
+    /// <summary>
+    /// Project an array of world-space 3D positions (3 floats per point) with the
+    /// current orthographic camera. Returns a new array of the same length containing
+    /// (sx, sy, sz) screen coordinates suitable for <see cref="BitmapRenderer.RenderSegments"/>.
+    /// </summary>
+    private static float[] ProjectWorldSegments(
+        float[] worldPos,
+        float ex, float ey, float ez,
+        float rrx, float rry, float rrz,
+        float urx, float ury, float urz,
+        float frx, float fry, float frz,
+        float scale, float hw, float hh)
+    {
+        int n = worldPos.Length / 3;
+        var o = new float[worldPos.Length];
+        for (int i = 0; i < n; i++)
+        {
+            int b = i * 3;
+            float rx = worldPos[b] - ex, ry = worldPos[b + 1] - ey, rz = worldPos[b + 2] - ez;
+            o[b] = hw + (rx * rrx + ry * rry + rz * rrz) * scale;
+            o[b + 1] = hh - (rx * urx + ry * ury + rz * urz) * scale;
+            o[b + 2] = rx * frx + ry * fry + rz * frz;
+        }
+        return o;
     }
 
     // ─── Arcball + screen-space pan ───

@@ -168,6 +168,25 @@ public static class BitmapRenderer
         }
     }
 
+    /// <summary>Draw a flat list of 3D line segments.
+    /// <paramref name="segFlat"/> holds 6 floats per segment: (ax,ay,az, bx,by,bz).
+    /// If <paramref name="perSegColors"/> is null, <paramref name="defaultColor"/> is used
+    /// for every segment.</summary>
+    public static void RenderSegments(
+        uint[] pixels, float[] zbuf, int w, int h,
+        float[] segFlat, uint[]? perSegColors, uint defaultColor)
+    {
+        int nSegs = segFlat.Length / 6;
+        for (int i = 0; i < nSegs; i++)
+        {
+            int b = i * 6;
+            uint col = perSegColors != null && i < perSegColors.Length ? perSegColors[i] : defaultColor;
+            DrawLine(pixels, zbuf, w, h,
+                segFlat[b], segFlat[b + 1], segFlat[b + 2],
+                segFlat[b + 3], segFlat[b + 4], segFlat[b + 5], col);
+        }
+    }
+
     private static void DrawLine(uint[] px, float[] zb, int w, int h,
         float ax, float ay, float az, float bx, float by, float bz, uint col)
     {
