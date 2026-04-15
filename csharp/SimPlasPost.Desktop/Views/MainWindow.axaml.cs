@@ -102,7 +102,7 @@ public partial class MainWindow : Window
             // pick geo/scl/vec siblings.
             if (files.Count == 1 &&
                 files[0].Name.EndsWith(".case", StringComparison.OrdinalIgnoreCase) &&
-                files[0].TryGetLocalPath() is string casePath)
+                GetLocalPath(files[0]) is string casePath)
             {
                 var contents = await ReadCaseWithAttachmentsAsync(casePath);
                 _vm.LoadEnsightFiles(contents);
@@ -123,6 +123,20 @@ public partial class MainWindow : Window
         {
             _vm.Log = $"Error reading files: {ex.Message}";
         }
+    }
+
+    /// <summary>Resolve the filesystem path of a picked file when it lives on
+    /// local disk. Returns null for virtual / non-file backings.</summary>
+    private static string? GetLocalPath(IStorageFile f)
+    {
+        try
+        {
+            var uri = f.Path;
+            if (uri == null || !uri.IsAbsoluteUri || !uri.IsFile) return null;
+            var p = uri.LocalPath;
+            return string.IsNullOrEmpty(p) ? null : p;
+        }
+        catch { return null; }
     }
 
     /// <summary>
