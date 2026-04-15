@@ -116,9 +116,10 @@ public partial class MainWindow : Window
                 {
                     _vm.Log = $"Reading '{Path.GetFileName(casePath)}' + attachments...";
                     Dictionary<string, string> contents;
+                    string? note;
                     try
                     {
-                        contents = await ReadCaseWithAttachmentsAsync(casePath);
+                        (contents, note) = await ReadCaseWithAttachmentsAsync(casePath);
                     }
                     catch (Exception rex)
                     {
@@ -127,6 +128,8 @@ public partial class MainWindow : Window
                     }
                     _vm.Log = $"Read {contents.Count} file(s). Parsing mesh...";
                     _vm.LoadEnsightFiles(contents);
+                    if (!string.IsNullOrEmpty(note))
+                        _vm.Log = $"{_vm.Log}  |  {note}";
                     return;
                 }
                 _vm.Log = "Could not resolve a local path for the .case file. " +
@@ -182,9 +185,16 @@ public partial class MainWindow : Window
     /// Read a .case file and every file it references (geo + transient variables)
     /// from the same directory. Variable patterns containing '*' are expanded into
     /// every matching file on disk so all time steps are picked up automatically.
+    /// Returns the file bag and an optional note (file-count caps, skipped files).
     /// </summary>
-    private static async Task<Dictionary<string, string>> ReadCaseWithAttachmentsAsync(string casePath)
+    private static async Task<(Dictionary<string, string> Contents, string? Note)> ReadCaseWithAttachmentsAsync(string casePath)
     {
+        // Safety caps — Ensight transients can easily hit tens of GB of ASCII,
+        // and .NET strings are UTF-16 so on-disk size effectively doubles in RAM.
+        // Cap per-variable step count and total bytes read; subsample if needed.
+        const int MaxStepsPerVar = 64;
+        const long MaxTotalBytes = 512L * 1024 * 1024; // 512 MB of ASCII
+
         var contents = new Dictionary<string, string>();
         string caseName = Path.GetFileName(casePath);
         string dir = Path.GetDirectoryName(casePath) ?? ".";
@@ -194,8 +204,14 @@ public partial class MainWindow : Window
 
         var parsed = EnsightParser.ParseCase(caseText);
 
-        var toLoad = new HashSet<string>(StringComparer.Ordinal);
-        if (!string.IsNullOrWhiteSpace(parsed.GeoFile)) toLoad.Add(parsed.GeoFile);
+        var toLoad = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        void AddFile(string name)
+        {
+            if (seen.Add(name)) toLoad.Add(name);
+        }
+
+        if (!string.IsNullOrWhiteSpace(parsed.GeoFile)) AddFile(parsed.GeoFile);
 
         foreach (var v in parsed.Variables)
         {
@@ -204,33 +220,65 @@ public partial class MainWindow : Window
 
             if (fn.Contains('*'))
             {
-                // Ensight convention: each '*' stands for a digit of the step
-                // index. Be lenient: treat any run of '*' as "one or more digits"
-                // so patterns like "u*" still match "u0001", "u0002", ...
-                string escaped = Regex.Escape(fn); // each '*' becomes '\*'
+                // Ensight convention: '*' stands for a digit of the step index.
+                // Treat any run of '*' as "one or more digits" so patterns like
+                // "u*" still match "u0001", "u0002", ...
+                string escaped = Regex.Escape(fn);
                 string pattern = Regex.Replace(escaped, @"(?:\\\*)+", @"\d+");
                 var rx = new Regex("^" + pattern + "$", RegexOptions.IgnoreCase);
 
+                var matches = new List<string>();
                 foreach (var p in Directory.EnumerateFiles(dir))
                 {
                     string name = Path.GetFileName(p);
-                    if (rx.IsMatch(name)) toLoad.Add(name);
+                    if (rx.IsMatch(name)) matches.Add(name);
                 }
+                matches.Sort(StringComparer.Ordinal);
+
+                // Subsample evenly across the full range if there are too many,
+                // so the user still sees first/last step but we don't OOM.
+                if (matches.Count > MaxStepsPerVar)
+                {
+                    var picked = new List<string>(MaxStepsPerVar);
+                    double stride = (matches.Count - 1.0) / (MaxStepsPerVar - 1);
+                    for (int k = 0; k < MaxStepsPerVar; k++)
+                        picked.Add(matches[(int)Math.Round(k * stride)]);
+                    matches = picked.Distinct(StringComparer.Ordinal).ToList();
+                }
+
+                foreach (var m in matches) AddFile(m);
             }
             else
             {
-                toLoad.Add(fn);
+                AddFile(fn);
             }
         }
 
+        long totalBytes = 0;
+        int skipped = 0;
         foreach (var name in toLoad)
         {
             string full = Path.Combine(dir, name);
-            if (!File.Exists(full)) continue;
+            if (!File.Exists(full)) { skipped++; continue; }
+
+            long size;
+            try { size = new FileInfo(full).Length; } catch { size = 0; }
+
+            if (totalBytes + size > MaxTotalBytes)
+            {
+                skipped++;
+                continue;
+            }
+
             contents[name] = await File.ReadAllTextAsync(full);
+            totalBytes += size;
         }
 
-        return contents;
+        string? note = null;
+        if (skipped > 0)
+            note = $"{skipped} file(s) skipped (caps: {MaxStepsPerVar} steps/var, {MaxTotalBytes / (1024 * 1024)} MB)";
+
+        return (contents, note);
     }
 
     private async void OnLoadJson(object? sender, RoutedEventArgs e)
