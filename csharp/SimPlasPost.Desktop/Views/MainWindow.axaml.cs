@@ -83,6 +83,8 @@ public partial class MainWindow : Window
     {
         try
         {
+            _vm.Log = "Opening file dialog...";
+
             var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
                 Title = "Open Ensight Case",
@@ -95,21 +97,45 @@ public partial class MainWindow : Window
                 },
             });
 
-            if (files.Count == 0) return;
+            if (files.Count == 0)
+            {
+                _vm.Log = "No file selected.";
+                return;
+            }
+            _vm.Log = $"Selected {files.Count} file(s). Resolving case...";
 
             // Preferred path: a single .case file was selected — pull every file
             // it references straight from disk so the user doesn't have to hand-
             // pick geo/scl/vec siblings.
             if (files.Count == 1 &&
-                files[0].Name.EndsWith(".case", StringComparison.OrdinalIgnoreCase) &&
-                GetLocalPath(files[0]) is string casePath)
+                files[0].Name.EndsWith(".case", StringComparison.OrdinalIgnoreCase))
             {
-                var contents = await ReadCaseWithAttachmentsAsync(casePath);
-                _vm.LoadEnsightFiles(contents);
+                string? casePath = GetLocalPath(files[0]);
+                _vm.Log = $"Case path: {casePath ?? "<null>"}";
+                if (casePath != null && File.Exists(casePath))
+                {
+                    _vm.Log = $"Reading '{Path.GetFileName(casePath)}' + attachments...";
+                    Dictionary<string, string> contents;
+                    try
+                    {
+                        contents = await ReadCaseWithAttachmentsAsync(casePath);
+                    }
+                    catch (Exception rex)
+                    {
+                        _vm.Log = $"Read error: {rex.Message}";
+                        return;
+                    }
+                    _vm.Log = $"Read {contents.Count} file(s). Parsing mesh...";
+                    _vm.LoadEnsightFiles(contents);
+                    return;
+                }
+                _vm.Log = "Could not resolve a local path for the .case file. " +
+                          "Please select the case and its sibling files together.";
                 return;
             }
 
             // Fallback: read exactly what the user hand-picked.
+            _vm.Log = $"Reading {files.Count} hand-picked file(s)...";
             var bag = new Dictionary<string, string>();
             foreach (var f in files)
             {
@@ -121,7 +147,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            _vm.Log = $"Error reading files: {ex.Message}";
+            _vm.Log = $"Error reading files: {ex.GetType().Name}: {ex.Message}";
         }
     }
 
@@ -132,8 +158,21 @@ public partial class MainWindow : Window
         try
         {
             var uri = f.Path;
-            if (uri == null || !uri.IsAbsoluteUri || !uri.IsFile) return null;
-            var p = uri.LocalPath;
+            if (uri == null) return null;
+
+            // Prefer the absolute "file:/..." path, fall back to the raw string.
+            string? p = null;
+            if (uri.IsAbsoluteUri)
+            {
+                try { p = uri.LocalPath; } catch { /* ignore */ }
+            }
+            if (string.IsNullOrEmpty(p))
+            {
+                p = uri.ToString();
+                const string filePrefix = "file://";
+                if (p.StartsWith(filePrefix, StringComparison.OrdinalIgnoreCase))
+                    p = Uri.UnescapeDataString(p.Substring(filePrefix.Length));
+            }
             return string.IsNullOrEmpty(p) ? null : p;
         }
         catch { return null; }
@@ -165,8 +204,13 @@ public partial class MainWindow : Window
 
             if (fn.Contains('*'))
             {
-                // Expand ***... wildcards against the case directory.
-                var rx = new Regex("^" + Regex.Escape(fn).Replace("\\*", @"\d") + "$");
+                // Ensight convention: each '*' stands for a digit of the step
+                // index. Be lenient: treat any run of '*' as "one or more digits"
+                // so patterns like "u*" still match "u0001", "u0002", ...
+                string escaped = Regex.Escape(fn); // each '*' becomes '\*'
+                string pattern = Regex.Replace(escaped, @"(?:\\\*)+", @"\d+");
+                var rx = new Regex("^" + pattern + "$", RegexOptions.IgnoreCase);
+
                 foreach (var p in Directory.EnumerateFiles(dir))
                 {
                     string name = Path.GetFileName(p);

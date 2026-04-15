@@ -47,15 +47,22 @@ public static class EnsightParser
 
             if (section == "v")
             {
-                var m = Regex.Match(line, @"^(scalar|vector)\s+per\s+(node|element):\s*(?:(\d+)\s+)?(\S+)\s+(\S+)", RegexOptions.IgnoreCase);
+                // Accept the optional time-set and file-set IDs that real Ensight
+                // case files often carry:
+                //   scalar per node:           Temperature temp_****.scl
+                //   scalar per node: 1         Temperature temp_****.scl
+                //   scalar per node: 1 1       Temperature temp_****.scl
+                var m = Regex.Match(line,
+                    @"^(scalar|vector)\s+per\s+(node|element):\s*(?:\d+\s+){0,2}(\S+)\s+(\S+)",
+                    RegexOptions.IgnoreCase);
                 if (m.Success)
                 {
                     result.Variables.Add(new EnsightVariable
                     {
                         VType = m.Groups[1].Value.ToLower(),
                         Location = m.Groups[2].Value.ToLower(),
-                        Name = m.Groups[4].Value,
-                        File = m.Groups[5].Value,
+                        Name = m.Groups[3].Value,
+                        File = m.Groups[4].Value,
                     });
                 }
             }
