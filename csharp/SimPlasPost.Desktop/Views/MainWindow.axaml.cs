@@ -1,9 +1,11 @@
+using System.Text.RegularExpressions;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using SimPlasPost.Core.Export;
 using SimPlasPost.Core.Models;
+using SimPlasPost.Core.Parsers;
 using SimPlasPost.Desktop.ViewModels;
 
 namespace SimPlasPost.Desktop.Views;
@@ -83,29 +85,108 @@ public partial class MainWindow : Window
         {
             var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
-                Title = "Open Ensight Files",
+                Title = "Open Ensight Case",
                 AllowMultiple = true,
                 FileTypeFilter = new[]
                 {
+                    new FilePickerFileType("Ensight Case") { Patterns = new[] { "*.case" } },
                     new FilePickerFileType("Ensight Files") { Patterns = new[] { "*.case", "*.geo", "*.geom", "*.scl", "*.vec", "*.ens" } },
                     new FilePickerFileType("All Files") { Patterns = new[] { "*.*" } },
                 },
             });
 
             if (files.Count == 0) return;
-            var contents = new Dictionary<string, string>();
+
+            // Preferred path: a single .case file was selected — pull every file
+            // it references straight from disk so the user doesn't have to hand-
+            // pick geo/scl/vec siblings.
+            if (files.Count == 1 &&
+                files[0].Name.EndsWith(".case", StringComparison.OrdinalIgnoreCase) &&
+                GetLocalPath(files[0]) is string casePath)
+            {
+                var contents = await ReadCaseWithAttachmentsAsync(casePath);
+                _vm.LoadEnsightFiles(contents);
+                return;
+            }
+
+            // Fallback: read exactly what the user hand-picked.
+            var bag = new Dictionary<string, string>();
             foreach (var f in files)
             {
                 await using var stream = await f.OpenReadAsync();
                 using var reader = new StreamReader(stream);
-                contents[f.Name] = await reader.ReadToEndAsync();
+                bag[f.Name] = await reader.ReadToEndAsync();
             }
-            _vm.LoadEnsightFiles(contents);
+            _vm.LoadEnsightFiles(bag);
         }
         catch (Exception ex)
         {
             _vm.Log = $"Error reading files: {ex.Message}";
         }
+    }
+
+    /// <summary>Resolve the filesystem path of a picked file when it lives on
+    /// local disk. Returns null for virtual / non-file backings.</summary>
+    private static string? GetLocalPath(IStorageFile f)
+    {
+        try
+        {
+            var uri = f.Path;
+            if (uri == null || !uri.IsAbsoluteUri || !uri.IsFile) return null;
+            var p = uri.LocalPath;
+            return string.IsNullOrEmpty(p) ? null : p;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Read a .case file and every file it references (geo + transient variables)
+    /// from the same directory. Variable patterns containing '*' are expanded into
+    /// every matching file on disk so all time steps are picked up automatically.
+    /// </summary>
+    private static async Task<Dictionary<string, string>> ReadCaseWithAttachmentsAsync(string casePath)
+    {
+        var contents = new Dictionary<string, string>();
+        string caseName = Path.GetFileName(casePath);
+        string dir = Path.GetDirectoryName(casePath) ?? ".";
+
+        string caseText = await File.ReadAllTextAsync(casePath);
+        contents[caseName] = caseText;
+
+        var parsed = EnsightParser.ParseCase(caseText);
+
+        var toLoad = new HashSet<string>(StringComparer.Ordinal);
+        if (!string.IsNullOrWhiteSpace(parsed.GeoFile)) toLoad.Add(parsed.GeoFile);
+
+        foreach (var v in parsed.Variables)
+        {
+            string fn = v.File;
+            if (string.IsNullOrWhiteSpace(fn)) continue;
+
+            if (fn.Contains('*'))
+            {
+                // Expand ***... wildcards against the case directory.
+                var rx = new Regex("^" + Regex.Escape(fn).Replace("\\*", @"\d") + "$");
+                foreach (var p in Directory.EnumerateFiles(dir))
+                {
+                    string name = Path.GetFileName(p);
+                    if (rx.IsMatch(name)) toLoad.Add(name);
+                }
+            }
+            else
+            {
+                toLoad.Add(fn);
+            }
+        }
+
+        foreach (var name in toLoad)
+        {
+            string full = Path.Combine(dir, name);
+            if (!File.Exists(full)) continue;
+            contents[name] = await File.ReadAllTextAsync(full);
+        }
+
+        return contents;
     }
 
     private async void OnLoadJson(object? sender, RoutedEventArgs e)
