@@ -83,6 +83,8 @@ public partial class MainWindow : Window
     {
         try
         {
+            _vm.Log = "Opening file dialog...";
+
             var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
                 Title = "Open Ensight Case",
@@ -95,7 +97,12 @@ public partial class MainWindow : Window
                 },
             });
 
-            if (files.Count == 0) return;
+            if (files.Count == 0)
+            {
+                _vm.Log = "No file selected.";
+                return;
+            }
+            _vm.Log = $"Selected {files.Count} file(s). Resolving case...";
 
             // Preferred path: a single .case file was selected — pull every file
             // it references straight from disk so the user doesn't have to hand-
@@ -104,19 +111,31 @@ public partial class MainWindow : Window
                 files[0].Name.EndsWith(".case", StringComparison.OrdinalIgnoreCase))
             {
                 string? casePath = GetLocalPath(files[0]);
+                _vm.Log = $"Case path: {casePath ?? "<null>"}";
                 if (casePath != null && File.Exists(casePath))
                 {
-                    _vm.Log = "Reading case + attachments...";
-                    var contents = await ReadCaseWithAttachmentsAsync(casePath);
+                    _vm.Log = $"Reading '{Path.GetFileName(casePath)}' + attachments...";
+                    Dictionary<string, string> contents;
+                    try
+                    {
+                        contents = await ReadCaseWithAttachmentsAsync(casePath);
+                    }
+                    catch (Exception rex)
+                    {
+                        _vm.Log = $"Read error: {rex.Message}";
+                        return;
+                    }
+                    _vm.Log = $"Read {contents.Count} file(s). Parsing mesh...";
                     _vm.LoadEnsightFiles(contents);
                     return;
                 }
                 _vm.Log = "Could not resolve a local path for the .case file. " +
-                          "Please open the case and its geo/scl/vec siblings together.";
+                          "Please select the case and its sibling files together.";
                 return;
             }
 
             // Fallback: read exactly what the user hand-picked.
+            _vm.Log = $"Reading {files.Count} hand-picked file(s)...";
             var bag = new Dictionary<string, string>();
             foreach (var f in files)
             {
@@ -128,7 +147,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            _vm.Log = $"Error reading files: {ex.Message}";
+            _vm.Log = $"Error reading files: {ex.GetType().Name}: {ex.Message}";
         }
     }
 
