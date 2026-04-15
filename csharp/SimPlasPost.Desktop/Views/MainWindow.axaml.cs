@@ -101,11 +101,18 @@ public partial class MainWindow : Window
             // it references straight from disk so the user doesn't have to hand-
             // pick geo/scl/vec siblings.
             if (files.Count == 1 &&
-                files[0].Name.EndsWith(".case", StringComparison.OrdinalIgnoreCase) &&
-                GetLocalPath(files[0]) is string casePath)
+                files[0].Name.EndsWith(".case", StringComparison.OrdinalIgnoreCase))
             {
-                var contents = await ReadCaseWithAttachmentsAsync(casePath);
-                _vm.LoadEnsightFiles(contents);
+                string? casePath = GetLocalPath(files[0]);
+                if (casePath != null && File.Exists(casePath))
+                {
+                    _vm.Log = "Reading case + attachments...";
+                    var contents = await ReadCaseWithAttachmentsAsync(casePath);
+                    _vm.LoadEnsightFiles(contents);
+                    return;
+                }
+                _vm.Log = "Could not resolve a local path for the .case file. " +
+                          "Please open the case and its geo/scl/vec siblings together.";
                 return;
             }
 
@@ -132,8 +139,21 @@ public partial class MainWindow : Window
         try
         {
             var uri = f.Path;
-            if (uri == null || !uri.IsAbsoluteUri || !uri.IsFile) return null;
-            var p = uri.LocalPath;
+            if (uri == null) return null;
+
+            // Prefer the absolute "file:/..." path, fall back to the raw string.
+            string? p = null;
+            if (uri.IsAbsoluteUri)
+            {
+                try { p = uri.LocalPath; } catch { /* ignore */ }
+            }
+            if (string.IsNullOrEmpty(p))
+            {
+                p = uri.ToString();
+                const string filePrefix = "file://";
+                if (p.StartsWith(filePrefix, StringComparison.OrdinalIgnoreCase))
+                    p = Uri.UnescapeDataString(p.Substring(filePrefix.Length));
+            }
             return string.IsNullOrEmpty(p) ? null : p;
         }
         catch { return null; }
@@ -165,8 +185,13 @@ public partial class MainWindow : Window
 
             if (fn.Contains('*'))
             {
-                // Expand ***... wildcards against the case directory.
-                var rx = new Regex("^" + Regex.Escape(fn).Replace("\\*", @"\d") + "$");
+                // Ensight convention: each '*' stands for a digit of the step
+                // index. Be lenient: treat any run of '*' as "one or more digits"
+                // so patterns like "u*" still match "u0001", "u0002", ...
+                string escaped = Regex.Escape(fn); // each '*' becomes '\*'
+                string pattern = Regex.Replace(escaped, @"(?:\\\*)+", @"\d+");
+                var rx = new Regex("^" + pattern + "$", RegexOptions.IgnoreCase);
+
                 foreach (var p in Directory.EnumerateFiles(dir))
                 {
                     string name = Path.GetFileName(p);
