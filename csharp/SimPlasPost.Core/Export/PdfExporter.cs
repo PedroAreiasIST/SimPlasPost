@@ -56,9 +56,9 @@ public static class PdfExporter
         // Color bar with labels — labels LEFT of bar, field name RIGHT of bar
         if (!string.IsNullOrEmpty(scene.FieldName))
         {
-            double fontSize = 9;
-            double bw = 16;
-            double bh = Math.Min(220, scene.H - 80);
+            double fontSize = 14;
+            double bw = 22;
+            double bh = Math.Min(260, scene.H - 100);
             double byBot = (scene.H - bh) / 2.0;
             int nSteps = 64, nLabels = 6;
 
@@ -66,10 +66,10 @@ public static class PdfExporter
             double maxLabelW = 10 * AvgCharWidth * fontSize;
 
             // Layout: [margin] [labels] [gap] [bar] [gap] [fieldName] [margin]
-            double rightMargin = 20;
-            double barRight = scene.W - rightMargin - 16; // room for rotated field name
+            double rightMargin = 24;
+            double barRight = scene.W - rightMargin - 24; // room for rotated field name
             double barX = barRight - bw;
-            double labelRight = barX - 6; // 6pt gap between labels and bar
+            double labelRight = barX - 8; // 8pt gap between labels and bar
 
             // Gradient strips
             for (int i = 0; i < nSteps; i++)
@@ -100,8 +100,8 @@ public static class PdfExporter
 
             // Field name — rotated 90 CCW, to the right of the bar
             string name = Escape(scene.FieldName);
-            double fnSize = 10;
-            double tx = barRight + 14;
+            double fnSize = 16;
+            double tx = barRight + 20;
             double ty = byBot + bh / 2.0;
             // Rotation matrix for 90 CCW: [0 1 -1 0 tx ty]
             stream.AppendLine($"BT /F1 {fnSize} Tf 0 1 -1 0 {F2(tx)} {F2(ty)} Tm ({name}) Tj ET");

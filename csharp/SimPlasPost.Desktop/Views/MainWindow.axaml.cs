@@ -28,11 +28,36 @@ public partial class MainWindow : Window
         _vm.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(MainViewModel.MeshData))
+            {
                 UpdateFieldList();
+                UpdateStepControl();
+            }
             if (e.PropertyName == nameof(MainViewModel.Log))
                 TxtLog.Text = _vm.Log;
+            if (e.PropertyName == nameof(MainViewModel.CurrentStep))
+                UpdateStepLabel();
         };
+
+        UpdateStepControl();
     }
+
+    private void UpdateStepControl()
+    {
+        PnlSteps.IsVisible = _vm.HasSteps;
+        int nSteps = Math.Max(1, _vm.StepCount);
+        // Avoid firing OnStepChanged while we re-seed the slider for a new mesh.
+        _suppressStepChange = true;
+        SlStep.Minimum = 0;
+        SlStep.Maximum = nSteps - 1;
+        SlStep.Value = _vm.CurrentStep;
+        _suppressStepChange = false;
+        UpdateStepLabel();
+    }
+
+    private void UpdateStepLabel() =>
+        TxtStep.Text = $"Step: {_vm.CurrentStep + 1} / {Math.Max(1, _vm.StepCount)}";
+
+    private bool _suppressStepChange;
 
     private void UpdateFieldList()
     {
@@ -128,6 +153,13 @@ public partial class MainWindow : Window
     }
 
     private void UpdateContourNLabel() => TxtContourN.Text = $"Iso-levels: {(int)SlContourN.Value}";
+
+    // ─── Time step ───
+    private void OnStepChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (_suppressStepChange || _vm == null) return;
+        _vm.CurrentStep = (int)SlStep.Value;
+    }
 
     // ─── Field selection ───
     private void OnFieldChanged(object? sender, SelectionChangedEventArgs e)

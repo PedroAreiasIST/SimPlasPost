@@ -31,6 +31,7 @@ public class MeshViewport : Control
     private double _cachedDefScale;
     private DisplayMode _cachedMode;
     private string? _cachedUserMin, _cachedUserMax;
+    private int _cachedStep = -1;
 
     private float[] _posX = Array.Empty<float>(); // flat position arrays for speed
     private float[] _posY = Array.Empty<float>();
@@ -74,7 +75,8 @@ public class MeshViewport : Control
         _vm.MeshData != _cachedMesh || _vm.ActiveField != _cachedField ||
         _vm.ShowDef != _cachedShowDef || _vm.DefScale != _cachedDefScale ||
         _vm.DisplayMode_ != _cachedMode ||
-        _vm.UserMin != _cachedUserMin || _vm.UserMax != _cachedUserMax);
+        _vm.UserMin != _cachedUserMin || _vm.UserMax != _cachedUserMax ||
+        _vm.CurrentStep != _cachedStep);
 
     /// <summary>Expensive: extract boundary, compute colors. Called rarely.</summary>
     private void RebuildGeometry()
@@ -86,6 +88,7 @@ public class MeshViewport : Control
         _cachedMesh = mesh; _cachedField = _vm.ActiveField;
         _cachedShowDef = _vm.ShowDef; _cachedDefScale = _vm.DefScale;
         _cachedMode = dMode; _cachedUserMin = _vm.UserMin; _cachedUserMax = _vm.UserMax;
+        _cachedStep = _vm.CurrentStep;
 
         var ns = mesh.Nodes;
         float mnX = float.MaxValue, mnY = float.MaxValue, mnZ = float.MaxValue;
@@ -251,8 +254,10 @@ public class MeshViewport : Control
     private void DrawColorBar(DrawingContext ctx, Rect bounds)
     {
         if (_vm == null) return;
-        double bh = Math.Min(220, bounds.Height - 60), bw = 16;
-        double by = (bounds.Height - bh) / 2, barX = bounds.Width - bw - 30, labelRight = barX - 6;
+        const double LabelFontSize = 15;
+        const double TitleFontSize = 18;
+        double bh = Math.Min(260, bounds.Height - 80), bw = 22;
+        double by = (bounds.Height - bh) / 2, barX = bounds.Width - bw - 110, labelRight = barX - 8;
         var lb = new SolidColorBrush(Color.FromRgb(51, 51, 51));
         for (int i = 0; i < 64; i++)
         {
@@ -264,11 +269,11 @@ public class MeshViewport : Control
         for (int i = 0; i < 6; i++)
         {
             double t = i / 5.0, v = _vm.FRangeMax - t * (_vm.FRangeMax - _vm.FRangeMin);
-            var text = new FormattedText(v.ToString("E2"), System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, SciBold, 10, lb);
+            var text = new FormattedText(v.ToString("E2"), System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, SciBold, LabelFontSize, lb);
             ctx.DrawText(text, new Point(labelRight - text.Width, by + t * bh - text.Height / 2));
         }
-        var ft = new FormattedText(_vm.ActiveField, System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, SciBold, 12, lb);
-        using (ctx.PushTransform(Matrix.CreateTranslation(barX + bw + 14, by + bh / 2 + ft.Width / 2)))
+        var ft = new FormattedText(_vm.ActiveField, System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, SciBold, TitleFontSize, lb);
+        using (ctx.PushTransform(Matrix.CreateTranslation(barX + bw + 20, by + bh / 2 + ft.Width / 2)))
         using (ctx.PushTransform(Matrix.CreateRotation(-Math.PI / 2)))
             ctx.DrawText(ft, new Point(0, 0));
     }
