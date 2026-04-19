@@ -210,12 +210,15 @@ function parseEnsightGeo(text) {
 
     if (nidGiven) for (let k=0;k<npts;k++) next();
     const x=[],y=[],z=[];
-    for (let k=0;k<npts;k++) x.push(parseFloat(next()));
-    for (let k=0;k<npts;k++) y.push(parseFloat(next()));
-    for (let k=0;k<npts;k++) z.push(parseFloat(next()));
+    let badCoord=0;
+    const readCoord=()=>{ const v=parseFloat(next()); if(isNaN(v)) badCoord++; return v; };
+    for (let k=0;k<npts;k++) x.push(readCoord());
+    for (let k=0;k<npts;k++) y.push(readCoord());
+    for (let k=0;k<npts;k++) z.push(readCoord());
+    if (badCoord>0) throw new Error(`Ensight geometry: ${badCoord} non-numeric coordinates in part starting near line ${i-3*npts+1}.`);
 
     const base = allNodes.length;
-    for (let k=0;k<npts;k++) allNodes.push([x[k]||0, y[k]||0, z[k]||0]);
+    for (let k=0;k<npts;k++) allNodes.push([x[k], y[k], z[k]]);
 
     // Element blocks
     while (i < lines.length) {
@@ -884,6 +887,10 @@ export default function FEPostprocessor() {
   const [showDef,setShowDef]=useState(false);
   const [defScale,setDefScale]=useState(1);
   const [contourN,setContourN]=useState(10);
+  // Draft value shown while dragging the iso-level slider; contourN only updates on release
+  // to avoid rebuilding the whole Three.js scene on every slider tick.
+  const [contourDraft,setContourDraft]=useState(10);
+  useEffect(()=>{setContourDraft(contourN);},[contourN]);
   const [fRange,setFRange]=useState([0,1]);
   const [userMin,setUserMin]=useState(""); // "" = auto
   const [userMax,setUserMax]=useState(""); // "" = auto
@@ -938,9 +945,18 @@ export default function FEPostprocessor() {
 
   useEffect(()=>{if(activeDemo>=0)loadMesh(demos[activeDemo]);},[activeDemo,demos,loadMesh]);
 
+  // Boundary-face extraction and dimensionality only depend on mesh topology, so they can
+  // be cached across unrelated state changes (active field, display mode, slider moves...).
+  const meshTopo=useMemo(()=>{
+    if(!meshData) return null;
+    const is3D=meshData.dim===3||meshData.elements.some(e=>{const ft=FACE_TABLE[e.type];return ft&&ft.dim===3;});
+    const bfaces=extractBoundaryFaces(meshData.elements,is3D);
+    return {is3D,bfaces};
+  },[meshData]);
+
   // ─── Three.js Scene ───
   useEffect(()=>{
-    if(!canvasRef.current||!meshData) return;
+    if(!canvasRef.current||!meshData||!meshTopo) return;
     const canvas=canvasRef.current, w=canvas.clientWidth, h=canvas.clientHeight;
     let ren=sceneRef.current.renderer;
     if(!ren){ren=new THREE.WebGLRenderer({canvas,antialias:true});sceneRef.current.renderer=ren;}
@@ -988,7 +1004,7 @@ export default function FEPostprocessor() {
       c.ty=vCy;
     }
 
-    const is3D=meshData.dim===3||meshData.elements.some(e=>{const ft=FACE_TABLE[e.type];return ft&&ft.dim===3;});
+    const {is3D,bfaces}=meshTopo;
 
     const dispF=meshData.fields?.Displacement||meshData.fields?.displacement;
     const dp=ns.map((n,i)=>{
@@ -1005,7 +1021,6 @@ export default function FEPostprocessor() {
     const eMax = userMax!==""&&!isNaN(parseFloat(userMax)) ? parseFloat(userMax) : fmax;
     const eSpan = Math.abs(eMax-eMin)<1e-15 ? 1 : eMax-eMin;
 
-    const bfaces=extractBoundaryFaces(meshData.elements,is3D);
     const pos=[],col=[],wpos=[];
 
     for(const face of bfaces){
@@ -1179,7 +1194,7 @@ export default function FEPostprocessor() {
       scene.traverse(disposeObj);
       if(triadScene) triadScene.traverse(disposeObj);
     };
-  },[meshData,activeField,displayMode,showDef,defScale,contourN,userMin,userMax]);
+  },[meshData,meshTopo,activeField,displayMode,showDef,defScale,contourN,userMin,userMax]);
 
   // Dispose the WebGLRenderer and free the WebGL context when the component unmounts.
   useEffect(()=>()=>{
@@ -1194,10 +1209,11 @@ export default function FEPostprocessor() {
     window.addEventListener("resize",fn); return()=>window.removeEventListener("resize",fn);
   },[]);
 
-  // Orbit controls with pole compensation and momentum
+  // Orbit controls with pole compensation and momentum.
+  // Handlers only read from refs, so they can be created once and live for the component lifetime.
   const velRef=useRef({vt:0,vp:0}); // angular velocity for momentum
-  const onMD=e=>{mouseRef.current={down:true,button:e.button,x:e.clientX,y:e.clientY};velRef.current.vt=0;velRef.current.vp=0;e.preventDefault();};
-  const onMM=e=>{if(!mouseRef.current.down)return;const dx=e.clientX-mouseRef.current.x,dy=e.clientY-mouseRef.current.y;
+  const onMD=useCallback(e=>{mouseRef.current={down:true,button:e.button,x:e.clientX,y:e.clientY};velRef.current.vt=0;velRef.current.vp=0;e.preventDefault();},[]);
+  const onMM=useCallback(e=>{if(!mouseRef.current.down)return;const dx=e.clientX-mouseRef.current.x,dy=e.clientY-mouseRef.current.y;
     if(mouseRef.current.button===0){
       // Compensate horizontal speed near poles (divide by sin(phi))
       const sinP=Math.max(0.15,Math.abs(Math.sin(camRef.current.phi)));
@@ -1209,23 +1225,23 @@ export default function FEPostprocessor() {
       camRef.current.tx+=dx*.003*camRef.current.dist;
       camRef.current.ty-=dy*.003*camRef.current.dist;
     }
-    mouseRef.current.x=e.clientX;mouseRef.current.y=e.clientY;};
-  const onMU=()=>{mouseRef.current.down=false;};
-  const onWH=e=>{camRef.current.dist*=e.deltaY>0?1.08:.92;camRef.current.dist=Math.max(.3,Math.min(20,camRef.current.dist));};
+    mouseRef.current.x=e.clientX;mouseRef.current.y=e.clientY;},[]);
+  const onMU=useCallback(()=>{mouseRef.current.down=false;},[]);
+  const onWH=useCallback(e=>{camRef.current.dist*=e.deltaY>0?1.08:.92;camRef.current.dist=Math.max(.3,Math.min(20,camRef.current.dist));},[]);
   // Touch with same pole compensation
-  const onTS=e=>{velRef.current.vt=0;velRef.current.vp=0;
+  const onTS=useCallback(e=>{velRef.current.vt=0;velRef.current.vp=0;
     if(e.touches.length===1)touchRef.current={active:true,x:e.touches[0].clientX,y:e.touches[0].clientY,dist:0,count:1};
     else if(e.touches.length===2){const dx=e.touches[1].clientX-e.touches[0].clientX,dy=e.touches[1].clientY-e.touches[0].clientY;
-      touchRef.current={active:true,x:(e.touches[0].clientX+e.touches[1].clientX)/2,y:(e.touches[0].clientY+e.touches[1].clientY)/2,dist:Math.sqrt(dx*dx+dy*dy),count:2};}};
-  const onTM=e=>{e.preventDefault();const t=touchRef.current;if(!t.active)return;
+      touchRef.current={active:true,x:(e.touches[0].clientX+e.touches[1].clientX)/2,y:(e.touches[0].clientY+e.touches[1].clientY)/2,dist:Math.sqrt(dx*dx+dy*dy),count:2};}},[]);
+  const onTM=useCallback(e=>{e.preventDefault();const t=touchRef.current;if(!t.active)return;
     if(t.count===1&&e.touches.length===1){
       const dx=e.touches[0].clientX-t.x, dy=e.touches[0].clientY-t.y;
       const sinP=Math.max(0.15,Math.abs(Math.sin(camRef.current.phi)));
       camRef.current.theta-=dx*.005/sinP;
       camRef.current.phi=Math.max(.01,Math.min(Math.PI-.01,camRef.current.phi-dy*.005));
       t.x=e.touches[0].clientX;t.y=e.touches[0].clientY;
-    } else if(t.count===2&&e.touches.length===2){const dx=e.touches[1].clientX-e.touches[0].clientX,dy=e.touches[1].clientY-e.touches[0].clientY,d=Math.sqrt(dx*dx+dy*dy);if(t.dist>0)camRef.current.dist*=t.dist/d;camRef.current.dist=Math.max(.3,Math.min(20,camRef.current.dist));t.dist=d;}};
-  const onTE=()=>{touchRef.current.active=false;};
+    } else if(t.count===2&&e.touches.length===2){const dx=e.touches[1].clientX-e.touches[0].clientX,dy=e.touches[1].clientY-e.touches[0].clientY,d=Math.sqrt(dx*dx+dy*dy);if(t.dist>0)camRef.current.dist*=t.dist/d;camRef.current.dist=Math.max(.3,Math.min(20,camRef.current.dist));t.dist=d;}},[]);
+  const onTE=useCallback(()=>{touchRef.current.active=false;},[]);
 
   // Zoom to fit: project bbox through current view, compute optimal frustum
   const zoomToFit=useCallback(()=>{
@@ -1273,7 +1289,7 @@ export default function FEPostprocessor() {
   },[activeField]);
 
   // ─── Ensight Loader ───
-  const handleEnsight=async e=>{
+  const handleEnsight=useCallback(async e=>{
     const files=Array.from(e.target.files||[]); if(!files.length)return;
     setLog("Reading files...");
     const readF=f=>new Promise((res,rej)=>{const r=new FileReader();r.onload=ev=>res(ev.target.result);r.onerror=rej;r.readAsText(f);});
@@ -1330,12 +1346,12 @@ export default function FEPostprocessor() {
     } catch (err) {
       setLog(`Ensight load failed: ${err.message}`);
     }
-  };
+  },[loadMesh]);
 
-  const handleJSON=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();
+  const handleJSON=useCallback(e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();
     r.onload=ev=>{try{const d=JSON.parse(ev.target.result);if(!d.nodes||!d.elements)throw new Error("Missing");
       d.dim=d.dim||(d.nodes.every(n=>Math.abs(n[2]||0)<1e-12)?2:3);d.nodes=d.nodes.map(n=>[n[0]||0,n[1]||0,n[2]||0]);d.name=f.name;d.fields=d.fields||{};
-      loadMesh(d);setActiveDemo(-1);setLog("JSON loaded");}catch(er){setLog("Error: "+er.message);}};r.readAsText(f);};
+      loadMesh(d);setActiveDemo(-1);setLog("JSON loaded");}catch(er){setLog("Error: "+er.message);}};r.readAsText(f);},[loadMesh]);
 
   const doExport = useCallback((fmt) => {
     if (!meshData) return;
@@ -1395,8 +1411,14 @@ export default function FEPostprocessor() {
             </label>))}
           {displayMode==="lines"&&(
             <div style={{marginTop:4}}>
-              <div style={{color:"#667",fontSize:10,marginBottom:2}}>Iso-levels: {contourN}</div>
-              <input type="range" min="3" max="30" step="1" value={contourN} onChange={e=>setContourN(parseInt(e.target.value))} style={{width:"100%",accentColor:"#4a9eff"}}/>
+              <div style={{color:"#667",fontSize:10,marginBottom:2}}>Iso-levels: {contourDraft}</div>
+              {/* Drag updates draft only; commit (and full scene rebuild) happens on release. */}
+              <input type="range" min="3" max="30" step="1" value={contourDraft}
+                onChange={e=>setContourDraft(parseInt(e.target.value))}
+                onMouseUp={e=>setContourN(parseInt(e.target.value))}
+                onTouchEnd={e=>setContourN(parseInt(e.target.value))}
+                onKeyUp={e=>setContourN(parseInt(e.target.value))}
+                style={{width:"100%",accentColor:"#4a9eff"}}/>
             </div>
           )}
 
