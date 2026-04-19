@@ -1,0 +1,16 @@
+{
+  "name": "simplaspost",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Interactive 3D finite element mesh post-processor (Ensight Gold loader, Three.js viewer, SVG/EPS/PDF vector export).",
+  "main": "fe-postprocessor.jsx",
+  "type": "module",
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "three": ">=0.150.0"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "three": "^0.160.0"
+  }
+}
