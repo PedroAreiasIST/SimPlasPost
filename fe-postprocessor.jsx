@@ -177,6 +177,11 @@ function parseEnsightCase(txt) {
   return r;
 }
 
+// Upper bounds prevent a malicious or corrupt Ensight file from requesting huge
+// allocations and crashing the tab before the parser reaches any real data.
+const MAX_ENSIGHT_NODES = 50_000_000;
+const MAX_ENSIGHT_ELEMS = 50_000_000;
+
 function parseEnsightGeo(text) {
   const lines = text.split("\n");
   let i = 0;
@@ -199,6 +204,9 @@ function parseEnsightGeo(text) {
     if (!/^coordinates/i.test(coordLine)) continue;
     const npts = parseInt(next());
     if (isNaN(npts) || npts <= 0) continue;
+    if (npts > MAX_ENSIGHT_NODES) throw new Error(`Ensight part declares ${npts} nodes (> ${MAX_ENSIGHT_NODES}); refusing to allocate.`);
+    const remaining = lines.length - i;
+    if (npts > remaining) throw new Error(`Ensight part declares ${npts} nodes but only ${remaining} lines remain.`);
 
     if (nidGiven) for (let k=0;k<npts;k++) next();
     const x=[],y=[],z=[];
@@ -217,6 +225,7 @@ function parseEnsightGeo(text) {
       if (!ENSIGHT_NPN[etype]) break;
       const ne = parseInt(next());
       if (isNaN(ne) || ne<=0) break;
+      if (ne > MAX_ENSIGHT_ELEMS) throw new Error(`Ensight block declares ${ne} elements (> ${MAX_ENSIGHT_ELEMS}); refusing to allocate.`);
       if (eidGiven) for (let k=0;k<ne;k++) next();
       const npe = ENSIGHT_NPN[etype];
       const mapped = ENSIGHT_ETYPE[etype] || etype;
@@ -623,7 +632,17 @@ function computeExportScene(meshData, activeField, showDef, defScale, camParams,
 }
 
 // ─── SVG Export ───
-const CM_FONT_FAMILY = `"Computer Modern Serif","CMU Serif","Latin Modern Roman","Times New Roman",serif`;
+// Font names use single quotes so the string can safely sit inside a double-quoted SVG attribute.
+const CM_FONT_FAMILY = `'Computer Modern Serif','CMU Serif','Latin Modern Roman','Times New Roman',serif`;
+
+// Escape characters with special meaning in XML/SVG text and attributes.
+function escapeXML(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&apos;"}[c]));
+}
+// Escape characters with special meaning inside PostScript / PDF literal strings: (, ), \
+function escapePSString(s) {
+  return String(s).replace(/([\\()])/g, "\\$1");
+}
 function exportSVG(scene) {
   const {faces, visibleEdges, contours, lp, fieldName, fmin, fmax, W, H} = scene;
   const lines = [];
@@ -668,9 +687,9 @@ function exportSVG(scene) {
       const t = i/(nLabels-1);
       const v = fmax - t*(fmax-fmin);
       const ly = by + t*bh + 4.5;
-      lines.push(`<text x="${bx-5}" y="${ly.toFixed(1)}" font-family=${CM_FONT_FAMILY} font-size="12.5" font-weight="bold" fill="#333" text-anchor="end">${v.toExponential(2)}</text>`);
+      lines.push(`<text x="${bx-5}" y="${ly.toFixed(1)}" font-family="${CM_FONT_FAMILY}" font-size="12.5" font-weight="bold" fill="#333" text-anchor="end">${escapeXML(v.toExponential(2))}</text>`);
     }
-    lines.push(`<text x="${bx+bw+16}" y="${by+bh/2}" font-family=${CM_FONT_FAMILY} font-size="14" font-weight="bold" fill="#333" text-anchor="middle" transform="rotate(90,${bx+bw+16},${by+bh/2})">${fieldName}</text>`);
+    lines.push(`<text x="${bx+bw+16}" y="${by+bh/2}" font-family="${CM_FONT_FAMILY}" font-size="14" font-weight="bold" fill="#333" text-anchor="middle" transform="rotate(90,${bx+bw+16},${by+bh/2})">${escapeXML(fieldName)}</text>`);
   }
 
   lines.push(`</svg>`);
@@ -736,11 +755,11 @@ function exportEPS(scene) {
       const t = i/(nLabels-1);
       const v = fmin + t*(fmax-fmin);
       const ly = byBot + t*bh - 4;
-      ps.push(`${bx-5} ${ly.toFixed(2)} moveto (${v.toExponential(2)}) dup stringwidth pop neg 0 rmoveto show`);
+      ps.push(`${bx-5} ${ly.toFixed(2)} moveto (${escapePSString(v.toExponential(2))}) dup stringwidth pop neg 0 rmoveto show`);
     }
     ps.push(`CMFont 14 scalefont setfont`);
     ps.push(`gsave ${bx+bw+16} ${byBot+bh/2} translate 90 rotate`);
-    ps.push(`(${fieldName}) dup stringwidth pop 2 div neg 0 moveto show`);
+    ps.push(`(${escapePSString(fieldName)}) dup stringwidth pop 2 div neg 0 moveto show`);
     ps.push(`grestore`);
   }
 
@@ -798,9 +817,11 @@ function exportPDF(scene) {
       const t = i/(nLabels-1);
       const v = fmin + t*(fmax-fmin);
       const ly = byBot + t*bh - 4;
-      stream.push(`BT /F1 12.5 Tf ${bx-5} ${ly.toFixed(2)} Td (${v.toExponential(2)}) Tj ET`);
+      stream.push(`BT /F1 12.5 Tf ${bx-5} ${ly.toFixed(2)} Td (${escapePSString(v.toExponential(2))}) Tj ET`);
     }
-    stream.push(`BT /F1 14 Tf ${bx+bw+16} ${byBot+bh/2} Td 90 0 0 90 0 0 Tm (${fieldName}) Tj ET`);
+    // Text matrix for a 90° counter-clockwise rotation: [cos θ, sin θ, -sin θ, cos θ, tx, ty].
+    // Font scaling is applied via Tf, not by inflating the matrix.
+    stream.push(`BT /F1 14 Tf 0 1 -1 0 ${bx+bw+16} ${byBot+bh/4} Tm (${escapePSString(fieldName)}) Tj ET`);
   }
 
   const content = stream.join("\n");
@@ -1147,10 +1168,24 @@ export default function FEPostprocessor() {
     };
     animate();
     return()=>{cancelAnimationFrame(animRef.current);
-      scene.traverse(o=>{o.geometry?.dispose();if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose());});
-      if(triadScene) triadScene.traverse(o=>{o.geometry?.dispose();if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose());});
+      // Dispose geometries, materials, and any textures bound to them (e.g. triad sprite labels).
+      const disposeObj=o=>{
+        o.geometry?.dispose();
+        if(o.material){
+          const mats=Array.isArray(o.material)?o.material:[o.material];
+          for(const m of mats){ m.map?.dispose?.(); m.dispose(); }
+        }
+      };
+      scene.traverse(disposeObj);
+      if(triadScene) triadScene.traverse(disposeObj);
     };
   },[meshData,activeField,displayMode,showDef,defScale,contourN,userMin,userMax]);
+
+  // Dispose the WebGLRenderer and free the WebGL context when the component unmounts.
+  useEffect(()=>()=>{
+    const r=sceneRef.current.renderer;
+    if(r){ r.dispose(); r.forceContextLoss?.(); sceneRef.current.renderer=null; }
+  },[]);
 
   useEffect(()=>{
     const fn=()=>{const c=canvasRef.current;if(!c||!sceneRef.current.renderer)return;
@@ -1245,6 +1280,7 @@ export default function FEPostprocessor() {
     const fm={};
     for(const f of files) fm[f.name]=await readF(f);
 
+    try {
     const caseF=files.find(f=>f.name.endsWith(".case"));
     if(!caseF){
       const geoF=files.find(f=>/\.(geo|geom)$/i.test(f.name));
@@ -1254,8 +1290,9 @@ export default function FEPostprocessor() {
         for(const f of files){if(f===geoF)continue;
           const v=parseEnsightScalar(fm[f.name],geo.nodes.length);
           if(v.length===geo.nodes.length) d.fields[f.name.replace(/\.[^.]+$/,"")]={type:"scalar",values:v};}
-        const zr=Math.max(...geo.nodes.map(n=>n[2]))-Math.min(...geo.nodes.map(n=>n[2]));
-        if(zr<1e-10) d.dim=2;
+        let zmn=Infinity,zmx=-Infinity;
+        for(const n of geo.nodes){if(n[2]<zmn)zmn=n[2];if(n[2]>zmx)zmx=n[2];}
+        if(zmx-zmn<1e-10) d.dim=2;
         loadMesh(d);setActiveDemo(-1);setLog(`${geo.nodes.length} nodes, ${geo.elements.length} elems`);return;
       }
       setLog("No .case or .geo file found");return;
@@ -1269,9 +1306,14 @@ export default function FEPostprocessor() {
 
     const geo=parseEnsightGeo(fm[cd.geoFile]);
     const d={...geo,name:caseF.name,dim:3,fields:{}};
-    const zr=Math.max(...geo.nodes.map(n=>n[2]))-Math.min(...geo.nodes.map(n=>n[2]));
-    const xyspan=Math.max(...geo.nodes.map(n=>Math.abs(n[0])),...geo.nodes.map(n=>Math.abs(n[1])))||1;
-    if(zr<1e-10*xyspan) d.dim=2;
+    let zmn=Infinity,zmx=-Infinity,xyspan=0;
+    for(const n of geo.nodes){
+      if(n[2]<zmn)zmn=n[2]; if(n[2]>zmx)zmx=n[2];
+      const ax=Math.abs(n[0]),ay=Math.abs(n[1]);
+      if(ax>xyspan)xyspan=ax; if(ay>xyspan)xyspan=ay;
+    }
+    if(xyspan===0)xyspan=1;
+    if(zmx-zmn<1e-10*xyspan) d.dim=2;
 
     for(const v of cd.variables){
       let fn=v.file;
@@ -1285,6 +1327,9 @@ export default function FEPostprocessor() {
     }
     loadMesh(d);setActiveDemo(-1);
     setLog(`${geo.nodes.length} nodes, ${geo.elements.length} elems, ${Object.keys(d.fields).length} fields`);
+    } catch (err) {
+      setLog(`Ensight load failed: ${err.message}`);
+    }
   };
 
   const handleJSON=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();
@@ -1314,11 +1359,12 @@ export default function FEPostprocessor() {
 
   const cbG=useMemo(()=>{const s=[];for(let i=0;i<=20;i++){const t=i/20;const[r,g,b]=sampleTurbo(t);s.push(`rgb(${r*255|0},${g*255|0},${b*255|0}) ${t*100}%`);}return`linear-gradient(to top,${s.join(",")})`;}, []);
 
-  // Load Computer Modern font
+  // Load Computer Modern font. Pin to a specific commit SHA so a compromise of
+  // the upstream repo cannot substitute new CSS into this page.
   useEffect(()=>{
     const link=document.createElement("link");
     link.rel="stylesheet";
-    link.href="https://cdn.jsdelivr.net/gh/aaaakshat/cm-web-fonts@latest/fonts.css";
+    link.href="https://cdn.jsdelivr.net/gh/aaaakshat/cm-web-fonts@333f55ec19733c28cdc43567ecf72eafd6b0af61/fonts.css";
     document.head.appendChild(link);
     return()=>{document.head.removeChild(link);};
   },[]);
