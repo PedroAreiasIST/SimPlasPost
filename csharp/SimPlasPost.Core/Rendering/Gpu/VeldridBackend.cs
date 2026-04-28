@@ -145,10 +145,10 @@ public sealed class VeldridBackend : IDisposable
 
     /// <summary>
     /// Build a Veldrid device on top of an existing GL context owned by Avalonia.
-    /// <paramref name="useGles"/> selects desktop OpenGL 3.3 vs OpenGL ES 3.0;
-    /// the matching shader header is wired up automatically.  On Linux Avalonia
-    /// almost always provides an EGL/GLES context, so callers should detect
-    /// the GL flavor (e.g. <c>gl.Version</c>) and pass <c>true</c> there.
+    /// The same Veldrid entry point handles both desktop OpenGL and OpenGL ES;
+    /// after creation we read <see cref="GraphicsDevice.BackendType"/> to choose
+    /// the matching GLSL header (desktop "#version 330 core" vs GLES
+    /// "#version 300 es / precision highp float").
     /// </summary>
     public static VeldridBackend CreateOpenGL(
         Func<string, IntPtr> getProcAddress,
@@ -159,8 +159,7 @@ public sealed class VeldridBackend : IDisposable
         Action swapBuffers,
         Action<bool> setSyncToVerticalBlank,
         IntPtr contextHandle,
-        uint width, uint height,
-        bool useGles)
+        uint width, uint height)
     {
         var options = new GraphicsDeviceOptions(
             debug: false,
@@ -180,11 +179,15 @@ public sealed class VeldridBackend : IDisposable
             swapBuffers,
             setSyncToVerticalBlank);
 
-        var gd = useGles
-            ? GraphicsDevice.CreateOpenGLES(options, platformInfo, width, height)
-            : GraphicsDevice.CreateOpenGL(options, platformInfo, width, height);
+        var gd = GraphicsDevice.CreateOpenGL(options, platformInfo, width, height);
 
-        var header = useGles ? Shaders.HeaderGles : Shaders.HeaderDesktop;
+        // Veldrid sniffs the GL version after context wrapping and reports
+        // BackendType.OpenGLES for an EGL/GLES context (typical Linux),
+        // BackendType.OpenGL for a desktop GL context (typical Windows/Mac).
+        var header = gd.BackendType == GraphicsBackend.OpenGLES
+            ? Shaders.HeaderGles
+            : Shaders.HeaderDesktop;
+
         var be = new VeldridBackend(gd, header);
         be.BuildPipelines(gd.MainSwapchain.Framebuffer.OutputDescription);
         return be;
