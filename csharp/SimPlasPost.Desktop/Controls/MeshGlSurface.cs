@@ -81,15 +81,9 @@ public class MeshGlSurface : OpenGlControlBase
         uint w = (uint)Math.Max(1, Bounds.Width);
         uint h = (uint)Math.Max(1, Bounds.Height);
 
-        // glGetString(GL_VERSION) returns e.g.
-        //   "OpenGL ES 3.0 Mesa 21.0.0"   → GLES context (typical Linux/EGL)
-        //   "3.3.0 NVIDIA 470.86"         → desktop GL (typical Windows/Mac)
-        // Avalonia's GlInterface exposes Version as a typed property.
-        string version = "";
-        try { version = gl.GetString(0x1F02 /* GL_VERSION */) ?? ""; }
-        catch { /* fall through */ }
-        bool useGles = version.IndexOf("OpenGL ES", StringComparison.OrdinalIgnoreCase) >= 0;
-
+        // Veldrid auto-detects desktop GL vs GLES from the active context's
+        // version string and sets GraphicsDevice.BackendType accordingly;
+        // the backend uses that to pick the matching GLSL #version header.
         _backend = VeldridBackend.CreateOpenGL(
             getProcAddress: name => gl.GetProcAddress(name),
             makeCurrent: _ => { },           // Avalonia keeps the context current on this thread
@@ -99,8 +93,7 @@ public class MeshGlSurface : OpenGlControlBase
             swapBuffers: () => { },          // Avalonia performs the swap
             setSyncToVerticalBlank: _ => { },
             contextHandle: IntPtr.Zero,
-            width: w, height: h,
-            useGles: useGles);
+            width: w, height: h);
 
         _renderer = new VeldridMeshRenderer(_backend);
         _cl = _backend.Factory.CreateCommandList();
