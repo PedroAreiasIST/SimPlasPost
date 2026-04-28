@@ -52,9 +52,18 @@ public sealed class VeldridBackend : IDisposable
     public Pipeline TriPipeline { get; private set; } = null!;
     public Pipeline LinePipeline { get; private set; } = null!;
 
-    private VeldridBackend(GraphicsDevice device)
+    /// <summary>
+    /// Header text prepended to every GLSL shader source before compilation.
+    /// Set by the factory method to match the active GL flavor (desktop GL
+    /// 3.3 core vs OpenGL ES 3.0). <see cref="OffscreenDepthRenderer"/>
+    /// reuses the same header so its depth-only pipeline matches.
+    /// </summary>
+    public string ShaderHeader { get; private set; } = Shaders.HeaderDesktop;
+
+    private VeldridBackend(GraphicsDevice device, string shaderHeader)
     {
         Device = device;
+        ShaderHeader = shaderHeader;
 
         UniformLayout = Factory.CreateResourceLayout(new ResourceLayoutDescription(
             new ResourceLayoutElementDescription("Uniforms", ResourceKind.UniformBuffer, ShaderStages.Vertex)));
@@ -117,11 +126,11 @@ public sealed class VeldridBackend : IDisposable
 
     private Shader[] LoadShaders(string vert, string frag)
     {
-        // OpenGL backend accepts raw GLSL bytes; no SPIR-V cross-compilation needed.
+        // OpenGL/GLES backends accept raw GLSL bytes; no SPIR-V cross-compilation needed.
         var vs = Factory.CreateShader(new ShaderDescription(
-            ShaderStages.Vertex, Encoding.UTF8.GetBytes(vert), "main"));
+            ShaderStages.Vertex, Encoding.UTF8.GetBytes(ShaderHeader + vert), "main"));
         var fs = Factory.CreateShader(new ShaderDescription(
-            ShaderStages.Fragment, Encoding.UTF8.GetBytes(frag), "main"));
+            ShaderStages.Fragment, Encoding.UTF8.GetBytes(ShaderHeader + frag), "main"));
         return new[] { vs, fs };
     }
 
@@ -135,11 +144,11 @@ public sealed class VeldridBackend : IDisposable
     }
 
     /// <summary>
-    /// Build a Veldrid OpenGL device that renders into an existing GL context
-    /// owned by Avalonia. Caller supplies a GetProcAddress function and the
-    /// initial framebuffer size; pipelines are NOT built here because the swapchain's
-    /// OutputDescription depends on the GL framebuffer attachments and is only
-    /// known after CreateOpenGL completes.
+    /// Build a Veldrid device on top of an existing GL context owned by Avalonia.
+    /// <paramref name="useGles"/> selects desktop OpenGL 3.3 vs OpenGL ES 3.0;
+    /// the matching shader header is wired up automatically.  On Linux Avalonia
+    /// almost always provides an EGL/GLES context, so callers should detect
+    /// the GL flavor (e.g. <c>gl.Version</c>) and pass <c>true</c> there.
     /// </summary>
     public static VeldridBackend CreateOpenGL(
         Func<string, IntPtr> getProcAddress,
@@ -150,7 +159,8 @@ public sealed class VeldridBackend : IDisposable
         Action swapBuffers,
         Action<bool> setSyncToVerticalBlank,
         IntPtr contextHandle,
-        uint width, uint height)
+        uint width, uint height,
+        bool useGles)
     {
         var options = new GraphicsDeviceOptions(
             debug: false,
@@ -170,8 +180,12 @@ public sealed class VeldridBackend : IDisposable
             swapBuffers,
             setSyncToVerticalBlank);
 
-        var gd = GraphicsDevice.CreateOpenGL(options, platformInfo, width, height);
-        var be = new VeldridBackend(gd);
+        var gd = useGles
+            ? GraphicsDevice.CreateOpenGLES(options, platformInfo, width, height)
+            : GraphicsDevice.CreateOpenGL(options, platformInfo, width, height);
+
+        var header = useGles ? Shaders.HeaderGles : Shaders.HeaderDesktop;
+        var be = new VeldridBackend(gd, header);
         be.BuildPipelines(gd.MainSwapchain.Framebuffer.OutputDescription);
         return be;
     }

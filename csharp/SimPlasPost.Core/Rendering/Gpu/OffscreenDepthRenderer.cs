@@ -72,9 +72,9 @@ public sealed class OffscreenDepthRenderer : IDisposable
             new VertexElementDescription("in_col", VertexElementSemantic.Color, VertexElementFormat.Byte4_Norm));
 
         var vs = f.CreateShader(new ShaderDescription(
-            ShaderStages.Vertex, Encoding.UTF8.GetBytes(Shaders.DepthVert), "main"));
+            ShaderStages.Vertex, Encoding.UTF8.GetBytes(_be.ShaderHeader + Shaders.DepthVert), "main"));
         var fs = f.CreateShader(new ShaderDescription(
-            ShaderStages.Fragment, Encoding.UTF8.GetBytes(Shaders.DepthFrag), "main"));
+            ShaderStages.Fragment, Encoding.UTF8.GetBytes(_be.ShaderHeader + Shaders.DepthFrag), "main"));
 
         var pipeline = f.CreateGraphicsPipeline(new GraphicsPipelineDescription(
             BlendStateDescription.SingleDisabled,

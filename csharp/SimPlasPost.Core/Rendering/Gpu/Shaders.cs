@@ -1,7 +1,9 @@
 namespace SimPlasPost.Core.Rendering.Gpu;
 
 /// <summary>
-/// GLSL shader sources for the Veldrid OpenGL backend.
+/// Shader bodies, written in a profile-agnostic style. The host prepends a
+/// version line (and, for GLES, a default float-precision qualifier) at
+/// device-creation time — see <see cref="VeldridBackend.ShaderHeader"/>.
 ///
 /// Coordinate convention: vertex positions are already in screen pixels
 /// (origin top-left, y goes down) plus a depth value in eye-Z space.
@@ -9,8 +11,11 @@ namespace SimPlasPost.Core.Rendering.Gpu;
 /// </summary>
 internal static class Shaders
 {
+    public const string HeaderDesktop = "#version 330 core\n";
+    public const string HeaderGles    = "#version 300 es\nprecision highp float;\n";
+
     // Per-vertex color triangle (Gouraud) — used for the filled mesh.
-    public const string MeshVert = @"#version 330 core
+    public const string MeshVert = @"
 layout(location = 0) in vec3 in_pos;
 layout(location = 1) in vec4 in_col;
 layout(std140) uniform Uniforms { vec4 viewport_depth; };  // x=w, y=h, z=zNear, w=zFar
@@ -21,32 +26,27 @@ void main()
     float h = viewport_depth.y;
     float zNear = viewport_depth.z;
     float zFar  = viewport_depth.w;
-    // Pixel coords -> clip space [-1,1].  Y axis is flipped (Avalonia top-left origin).
     float cx = (in_pos.x / w) * 2.0 - 1.0;
     float cy = 1.0 - (in_pos.y / h) * 2.0;
-    // Depth is in eye-Z (camera forward); larger = further.  Map to NDC [-1,1].
     float zSpan = max(zFar - zNear, 1e-6);
     float cz = ((in_pos.z - zNear) / zSpan) * 2.0 - 1.0;
     gl_Position = vec4(cx, cy, cz, 1.0);
     v_col = in_col;
 }";
 
-    public const string MeshFrag = @"#version 330 core
+    public const string MeshFrag = @"
 in vec4 v_col;
 out vec4 frag;
 void main() { frag = v_col; }";
 
-    // Solid-color line shader — used for face edges, feature edges, and contour
-    // iso-lines. The color is a per-vertex attribute so the same pipeline serves
-    // contour lines (per-segment color) and edges (uniform color baked per-vertex).
+    // Lines reuse the mesh shaders.
     public const string LineVert = MeshVert;
     public const string LineFrag = MeshFrag;
 
     // Depth pre-pass: writes eye-Z to a single-channel R32_Float color
-    // attachment.  Reading back a color attachment is portable across drivers,
-    // unlike packing/unpacking a depth attachment whose memory layout varies
-    // (D24_UNorm_S8_UInt, D32_Float_S8_UInt, etc.).
-    public const string DepthVert = @"#version 330 core
+    // attachment so the readback layout is well-defined regardless of the
+    // driver's depth-format packing.
+    public const string DepthVert = @"
 layout(location = 0) in vec3 in_pos;
 layout(location = 1) in vec4 in_col;
 layout(std140) uniform Uniforms { vec4 viewport_depth; };
@@ -65,7 +65,7 @@ void main()
     v_eyez = in_pos.z;
 }";
 
-    public const string DepthFrag = @"#version 330 core
+    public const string DepthFrag = @"
 in float v_eyez;
 out float frag;
 void main() { frag = v_eyez; }";
