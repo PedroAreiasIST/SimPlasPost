@@ -19,6 +19,14 @@ namespace SimPlasPost.Desktop.Controls;
 /// </summary>
 public class MeshGlSurface : OpenGlControlBase
 {
+    static MeshGlSurface()
+    {
+        // Route Veldrid backend's diagnostic lines into the same side-channel
+        // log that MeshGlSurface uses, so Veldrid steps and Avalonia GL steps
+        // appear interleaved in ~/simplaspost-gl.log.
+        VeldridBackend.Log = LogGl;
+    }
+
     private MainViewModel? _vm;
     private VeldridBackend? _backend;
     private VeldridMeshRenderer? _renderer;
@@ -78,32 +86,67 @@ public class MeshGlSurface : OpenGlControlBase
 
     protected override void OnOpenGlInit(GlInterface gl)
     {
-        uint w = (uint)Math.Max(1, Bounds.Width);
-        uint h = (uint)Math.Max(1, Bounds.Height);
+        try
+        {
+            uint w = (uint)Math.Max(1, Bounds.Width);
+            uint h = (uint)Math.Max(1, Bounds.Height);
+            LogGl($"OnOpenGlInit start (w={w} h={h})");
 
-        // Veldrid auto-detects desktop GL vs GLES from the active context's
-        // version string and sets GraphicsDevice.BackendType accordingly;
-        // the backend uses that to pick the matching GLSL #version header.
-        _backend = VeldridBackend.CreateOpenGL(
-            getProcAddress: name => gl.GetProcAddress(name),
-            makeCurrent: _ => { },           // Avalonia keeps the context current on this thread
-            getCurrentContext: () => IntPtr.Zero,
-            clearCurrentContext: () => { },
-            deleteContext: _ => { },
-            swapBuffers: () => { },          // Avalonia performs the swap
-            setSyncToVerticalBlank: _ => { },
-            contextHandle: IntPtr.Zero,
-            width: w, height: h);
+            // Log the active GL context info so we can tell from the trace
+            // exactly which profile Avalonia handed us.
+            string vendor = "?", renderer = "?", version = "?", shading = "?";
+            try
+            {
+                vendor   = gl.GetString(0x1F00 /* GL_VENDOR */)                   ?? "?";
+                renderer = gl.GetString(0x1F01 /* GL_RENDERER */)                 ?? "?";
+                version  = gl.GetString(0x1F02 /* GL_VERSION */)                  ?? "?";
+                shading  = gl.GetString(0x8B8C /* GL_SHADING_LANGUAGE_VERSION */) ?? "?";
+            }
+            catch (Exception strEx) { LogGl("gl.GetString threw: " + strEx.Message); }
+            LogGl($"GL_VENDOR='{vendor}' GL_RENDERER='{renderer}' GL_VERSION='{version}' GLSL='{shading}'");
 
-        _renderer = new VeldridMeshRenderer(_backend);
-        _cl = _backend.Factory.CreateCommandList();
+            LogGl("Calling VeldridBackend.CreateOpenGL...");
+            _backend = VeldridBackend.CreateOpenGL(
+                getProcAddress: name =>
+                {
+                    var p = gl.GetProcAddress(name);
+                    // Some GL function names won't resolve (e.g. desktop-only
+                    // entry points on a GLES context); Veldrid handles a null
+                    // pointer for optional functions internally.  Log only when
+                    // the lookup fails AND the name looks like a core entry.
+                    return p;
+                },
+                makeCurrent: _ => { },
+                getCurrentContext: () => IntPtr.Zero,
+                clearCurrentContext: () => { },
+                deleteContext: _ => { },
+                swapBuffers: () => { },
+                setSyncToVerticalBlank: _ => { },
+                contextHandle: IntPtr.Zero,
+                width: w, height: h);
+
+            LogGl($"Veldrid OK — BackendType={_backend.Device.BackendType}");
+
+            _renderer = new VeldridMeshRenderer(_backend);
+            _cl = _backend.Factory.CreateCommandList();
+            LogGl("OnOpenGlInit done");
+        }
+        catch (Exception ex)
+        {
+            LogGl("OnOpenGlInit threw: " + ex);
+            throw;
+        }
     }
 
     protected override void OnOpenGlDeinit(GlInterface gl)
     {
-        _cl?.Dispose();
-        _renderer?.Dispose();
-        _backend?.Dispose();
+        try
+        {
+            _cl?.Dispose();
+            _renderer?.Dispose();
+            _backend?.Dispose();
+        }
+        catch (Exception ex) { LogGl("OnOpenGlDeinit threw: " + ex); }
         _cl = null;
         _renderer = null;
         _backend = null;
@@ -111,30 +154,50 @@ public class MeshGlSurface : OpenGlControlBase
 
     protected override void OnOpenGlRender(GlInterface gl, int fb)
     {
+        try
+        {
+            RenderInner(fb);
+        }
+        catch (Exception ex)
+        {
+            LogGl("OnOpenGlRender threw: " + ex);
+            throw;
+        }
+    }
+
+    private int _frameCount;
+    private void RenderInner(int fb)
+    {
         if (_vm == null || _backend == null || _renderer == null || _cl == null) return;
         if (_vm.MeshData == null) return;
+
+        // Log the first few frames step-by-step.  After we've confirmed
+        // the rendering works once, the per-step logging is silenced.
+        bool trace = _frameCount < 3;
+        if (trace) LogGl($"RenderInner frame={_frameCount} fb={fb}");
 
         int w = (int)Math.Max(1, Bounds.Width);
         int h = (int)Math.Max(1, Bounds.Height);
 
-        // Resize the Veldrid swapchain when the control size changes.
         if (_backend.Device.MainSwapchain.Framebuffer.Width != (uint)w ||
             _backend.Device.MainSwapchain.Framebuffer.Height != (uint)h)
         {
+            if (trace) LogGl($"  ResizeMainWindow {w}x{h}");
             _backend.Device.ResizeMainWindow((uint)w, (uint)h);
+            if (trace) LogGl("  BuildPipelines");
             _backend.BuildPipelines(_backend.Device.MainSwapchain.Framebuffer.OutputDescription);
         }
 
         if (_geomDirty || GeometryChanged())
         {
+            if (trace) LogGl("  RebuildGeometry");
             RebuildGeometry();
             _geomDirty = false;
         }
 
+        if (trace) LogGl($"  ProjectAndUpload nVerts={_nVerts}");
         ProjectAndUpload(w, h);
 
-        // Compute eye-Z range for the linear depth mapping in the vertex shader.
-        // Find min/max projected z so we use the full depth precision available.
         float zMin = float.MaxValue, zMax = float.MinValue;
         for (int i = 0; i < _nVerts; i++)
         {
@@ -146,13 +209,38 @@ public class MeshGlSurface : OpenGlControlBase
         float pad = 0.05f * (zMax - zMin);
         zMin -= pad; zMax += pad;
 
+        if (trace) LogGl($"  UpdateUniforms zMin={zMin} zMax={zMax}");
         _backend.UpdateUniforms(w, h, zMin, zMax);
 
+        if (trace) LogGl("  cl.Begin / RenderFrame / cl.End");
         _cl.Begin();
         _renderer.RenderFrame(_cl, _backend.Device.MainSwapchain.Framebuffer, RgbaFloat.White,
             drawFill: _cachedMode != DisplayMode.Wireframe);
         _cl.End();
+
+        if (trace) LogGl("  SubmitCommands");
         _backend.Device.SubmitCommands(_cl);
+        if (trace) LogGl("  done");
+        _frameCount++;
+    }
+
+    /// <summary>
+    /// Write a diagnostic line to both stderr and ~/simplaspost-gl.log. Rider
+    /// sometimes swallows the GL backend's stderr; the side-channel file
+    /// guarantees we can read what actually happened during init/render.
+    /// </summary>
+    private static void LogGl(string msg)
+    {
+        var line = $"[SimPlasPost.Gl {DateTime.Now:HH:mm:ss.fff}] {msg}";
+        try { Console.Error.WriteLine(line); } catch { /* ignore */ }
+        try
+        {
+            string path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "simplaspost-gl.log");
+            File.AppendAllText(path, line + Environment.NewLine);
+        }
+        catch { /* ignore */ }
     }
 
     /// <summary>Rebuild cached projected geometry when mesh/field/mode changes.</summary>
