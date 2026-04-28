@@ -22,9 +22,14 @@ namespace SimPlasPost.Core.Rendering.Gpu;
 public sealed class OffscreenDepthRenderer : IDisposable
 {
     private readonly VeldridBackend _be;
+    // Color attachment: single-channel float that the fragment shader fills
+    // with the per-pixel eye-Z value.  We copy this into a staging texture and
+    // read it back on the CPU to obtain a depth buffer.
+    private Texture? _eyeZTex;
+    private Texture? _eyeZStaging;
+    // Depth attachment: only used for the GPU depth-test that gives us
+    // hidden-surface culling.  Never read back, so any standard depth format works.
     private Texture? _depthTex;
-    private Texture? _depthStaging;
-    private Texture? _colorTex;       // dummy color attachment (some GL drivers require one)
     private Framebuffer? _fbo;
     private Pipeline? _depthPipeline;
     private DeviceBuffer? _vbo;
@@ -41,20 +46,20 @@ public sealed class OffscreenDepthRenderer : IDisposable
     {
         if (_fbo != null && w == _w && h == _h) return;
         _fbo?.Dispose();
+        _eyeZTex?.Dispose();
+        _eyeZStaging?.Dispose();
         _depthTex?.Dispose();
-        _depthStaging?.Dispose();
-        _colorTex?.Dispose();
         _depthPipeline?.Dispose();
 
         var f = _be.Factory;
-        _depthTex = f.CreateTexture(TextureDescription.Texture2D(
+        _eyeZTex = f.CreateTexture(TextureDescription.Texture2D(
             w, h, mipLevels: 1, arrayLayers: 1,
-            PixelFormat.D32_Float, TextureUsage.DepthStencil));
-        _depthStaging = f.CreateTexture(TextureDescription.Texture2D(
-            w, h, 1, 1, PixelFormat.D32_Float, TextureUsage.Staging));
-        _colorTex = f.CreateTexture(TextureDescription.Texture2D(
-            w, h, 1, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.RenderTarget));
-        _fbo = f.CreateFramebuffer(new FramebufferDescription(_depthTex, _colorTex));
+            PixelFormat.R32_Float, TextureUsage.RenderTarget | TextureUsage.Sampled));
+        _eyeZStaging = f.CreateTexture(TextureDescription.Texture2D(
+            w, h, 1, 1, PixelFormat.R32_Float, TextureUsage.Staging));
+        _depthTex = f.CreateTexture(TextureDescription.Texture2D(
+            w, h, 1, 1, PixelFormat.D24_UNorm_S8_UInt, TextureUsage.DepthStencil));
+        _fbo = f.CreateFramebuffer(new FramebufferDescription(_depthTex, _eyeZTex));
         _depthPipeline = BuildDepthPipeline(_fbo.OutputDescription);
         _w = w; _h = h;
     }
@@ -144,7 +149,8 @@ public sealed class OffscreenDepthRenderer : IDisposable
         var cl = _be.Factory.CreateCommandList();
         cl.Begin();
         cl.SetFramebuffer(_fbo!);
-        cl.ClearColorTarget(0, RgbaFloat.White);
+        // Clear eye-Z color attachment to "infinity" so unrendered pixels read as background.
+        cl.ClearColorTarget(0, new RgbaFloat(float.MaxValue, 0, 0, 0));
         cl.ClearDepthStencil(1f);
         if (_indexCount > 0 && _vbo != null && _ibo != null)
         {
@@ -154,34 +160,30 @@ public sealed class OffscreenDepthRenderer : IDisposable
             cl.SetIndexBuffer(_ibo, IndexFormat.UInt32);
             cl.DrawIndexed(_indexCount);
         }
-        cl.CopyTexture(_depthTex!, _depthStaging!);
+        cl.CopyTexture(_eyeZTex!, _eyeZStaging!);
         cl.End();
         _be.Device.SubmitCommands(cl);
         _be.Device.WaitForIdle();
         cl.Dispose();
 
-        // Read back depth and remap NDC depth → eye-Z so callers can compare
-        // against vertex Z values directly.
-        var map = _be.Device.Map(_depthStaging!, MapMode.Read);
+        // The fragment shader writes eye-Z directly into the R32_Float color
+        // attachment, so the readback values are already in the same coordinate
+        // space as the vertex Z passed in by the caller — no NDC remap needed.
+        var map = _be.Device.Map(_eyeZStaging!, MapMode.Read);
         var dst = new float[w * h];
         unsafe
         {
             float* src = (float*)map.Data.ToPointer();
             uint rowPitch = map.RowPitch / sizeof(float);
-            float zSpan = zFar - zNear;
             for (int y = 0; y < h; y++)
             {
                 int srcRow = (int)(y * rowPitch);
                 int dstRow = y * w;
                 for (int x = 0; x < w; x++)
-                {
-                    float d = src[srcRow + x];   // NDC [0,1]
-                    // 1.0 == cleared / background — surface "at infinity"
-                    dst[dstRow + x] = d >= 0.999999f ? float.MaxValue : zNear + d * zSpan;
-                }
+                    dst[dstRow + x] = src[srcRow + x];
             }
         }
-        _be.Device.Unmap(_depthStaging!);
+        _be.Device.Unmap(_eyeZStaging!);
         return dst;
     }
 
@@ -212,8 +214,8 @@ public sealed class OffscreenDepthRenderer : IDisposable
         _ibo?.Dispose();
         _depthPipeline?.Dispose();
         _fbo?.Dispose();
+        _eyeZTex?.Dispose();
+        _eyeZStaging?.Dispose();
         _depthTex?.Dispose();
-        _depthStaging?.Dispose();
-        _colorTex?.Dispose();
     }
 }
