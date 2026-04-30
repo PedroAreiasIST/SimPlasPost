@@ -21,10 +21,13 @@ public class MeshGlSurface : OpenGlControlBase
 {
     static MeshGlSurface()
     {
-        // Route Veldrid backend's diagnostic lines into the same side-channel
-        // log that MeshGlSurface uses, so Veldrid steps and Avalonia GL steps
-        // appear interleaved in ~/simplaspost-gl.log.
-        VeldridBackend.Log = LogGl;
+        VeldridBackend.Log = Diag.Log;
+        Diag.Log("MeshGlSurface static ctor: Veldrid log hook installed");
+    }
+
+    public MeshGlSurface()
+    {
+        Diag.Log("MeshGlSurface ctor");
     }
 
     private MainViewModel? _vm;
@@ -90,7 +93,7 @@ public class MeshGlSurface : OpenGlControlBase
         {
             uint w = (uint)Math.Max(1, Bounds.Width);
             uint h = (uint)Math.Max(1, Bounds.Height);
-            LogGl($"OnOpenGlInit start (w={w} h={h})");
+            Diag.Log($"OnOpenGlInit start (w={w} h={h})");
 
             // Log the active GL context info so we can tell from the trace
             // exactly which profile Avalonia handed us.
@@ -102,10 +105,10 @@ public class MeshGlSurface : OpenGlControlBase
                 version  = gl.GetString(0x1F02 /* GL_VERSION */)                  ?? "?";
                 shading  = gl.GetString(0x8B8C /* GL_SHADING_LANGUAGE_VERSION */) ?? "?";
             }
-            catch (Exception strEx) { LogGl("gl.GetString threw: " + strEx.Message); }
-            LogGl($"GL_VENDOR='{vendor}' GL_RENDERER='{renderer}' GL_VERSION='{version}' GLSL='{shading}'");
+            catch (Exception strEx) { Diag.Log("gl.GetString threw: " + strEx.Message); }
+            Diag.Log($"GL_VENDOR='{vendor}' GL_RENDERER='{renderer}' GL_VERSION='{version}' GLSL='{shading}'");
 
-            LogGl("Calling VeldridBackend.CreateOpenGL...");
+            Diag.Log("Calling VeldridBackend.CreateOpenGL...");
             _backend = VeldridBackend.CreateOpenGL(
                 getProcAddress: name =>
                 {
@@ -125,15 +128,15 @@ public class MeshGlSurface : OpenGlControlBase
                 contextHandle: IntPtr.Zero,
                 width: w, height: h);
 
-            LogGl($"Veldrid OK — BackendType={_backend.Device.BackendType}");
+            Diag.Log($"Veldrid OK — BackendType={_backend.Device.BackendType}");
 
             _renderer = new VeldridMeshRenderer(_backend);
             _cl = _backend.Factory.CreateCommandList();
-            LogGl("OnOpenGlInit done");
+            Diag.Log("OnOpenGlInit done");
         }
         catch (Exception ex)
         {
-            LogGl("OnOpenGlInit threw: " + ex);
+            Diag.Log("OnOpenGlInit threw: " + ex);
             throw;
         }
     }
@@ -146,7 +149,7 @@ public class MeshGlSurface : OpenGlControlBase
             _renderer?.Dispose();
             _backend?.Dispose();
         }
-        catch (Exception ex) { LogGl("OnOpenGlDeinit threw: " + ex); }
+        catch (Exception ex) { Diag.Log("OnOpenGlDeinit threw: " + ex); }
         _cl = null;
         _renderer = null;
         _backend = null;
@@ -160,7 +163,7 @@ public class MeshGlSurface : OpenGlControlBase
         }
         catch (Exception ex)
         {
-            LogGl("OnOpenGlRender threw: " + ex);
+            Diag.Log("OnOpenGlRender threw: " + ex);
             throw;
         }
     }
@@ -174,7 +177,7 @@ public class MeshGlSurface : OpenGlControlBase
         // Log the first few frames step-by-step.  After we've confirmed
         // the rendering works once, the per-step logging is silenced.
         bool trace = _frameCount < 3;
-        if (trace) LogGl($"RenderInner frame={_frameCount} fb={fb}");
+        if (trace) Diag.Log($"RenderInner frame={_frameCount} fb={fb}");
 
         int w = (int)Math.Max(1, Bounds.Width);
         int h = (int)Math.Max(1, Bounds.Height);
@@ -182,20 +185,20 @@ public class MeshGlSurface : OpenGlControlBase
         if (_backend.Device.MainSwapchain.Framebuffer.Width != (uint)w ||
             _backend.Device.MainSwapchain.Framebuffer.Height != (uint)h)
         {
-            if (trace) LogGl($"  ResizeMainWindow {w}x{h}");
+            if (trace) Diag.Log($"  ResizeMainWindow {w}x{h}");
             _backend.Device.ResizeMainWindow((uint)w, (uint)h);
-            if (trace) LogGl("  BuildPipelines");
+            if (trace) Diag.Log("  BuildPipelines");
             _backend.BuildPipelines(_backend.Device.MainSwapchain.Framebuffer.OutputDescription);
         }
 
         if (_geomDirty || GeometryChanged())
         {
-            if (trace) LogGl("  RebuildGeometry");
+            if (trace) Diag.Log("  RebuildGeometry");
             RebuildGeometry();
             _geomDirty = false;
         }
 
-        if (trace) LogGl($"  ProjectAndUpload nVerts={_nVerts}");
+        if (trace) Diag.Log($"  ProjectAndUpload nVerts={_nVerts}");
         ProjectAndUpload(w, h);
 
         float zMin = float.MaxValue, zMax = float.MinValue;
@@ -209,38 +212,19 @@ public class MeshGlSurface : OpenGlControlBase
         float pad = 0.05f * (zMax - zMin);
         zMin -= pad; zMax += pad;
 
-        if (trace) LogGl($"  UpdateUniforms zMin={zMin} zMax={zMax}");
+        if (trace) Diag.Log($"  UpdateUniforms zMin={zMin} zMax={zMax}");
         _backend.UpdateUniforms(w, h, zMin, zMax);
 
-        if (trace) LogGl("  cl.Begin / RenderFrame / cl.End");
+        if (trace) Diag.Log("  cl.Begin / RenderFrame / cl.End");
         _cl.Begin();
         _renderer.RenderFrame(_cl, _backend.Device.MainSwapchain.Framebuffer, RgbaFloat.White,
             drawFill: _cachedMode != DisplayMode.Wireframe);
         _cl.End();
 
-        if (trace) LogGl("  SubmitCommands");
+        if (trace) Diag.Log("  SubmitCommands");
         _backend.Device.SubmitCommands(_cl);
-        if (trace) LogGl("  done");
+        if (trace) Diag.Log("  done");
         _frameCount++;
-    }
-
-    /// <summary>
-    /// Write a diagnostic line to both stderr and ~/simplaspost-gl.log. Rider
-    /// sometimes swallows the GL backend's stderr; the side-channel file
-    /// guarantees we can read what actually happened during init/render.
-    /// </summary>
-    private static void LogGl(string msg)
-    {
-        var line = $"[SimPlasPost.Gl {DateTime.Now:HH:mm:ss.fff}] {msg}";
-        try { Console.Error.WriteLine(line); } catch { /* ignore */ }
-        try
-        {
-            string path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "simplaspost-gl.log");
-            File.AppendAllText(path, line + Environment.NewLine);
-        }
-        catch { /* ignore */ }
     }
 
     /// <summary>Rebuild cached projected geometry when mesh/field/mode changes.</summary>

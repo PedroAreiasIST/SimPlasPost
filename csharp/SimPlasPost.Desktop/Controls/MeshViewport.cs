@@ -23,12 +23,14 @@ public class MeshViewport : Panel
 
     public MeshViewport()
     {
+        Diag.Log("MeshViewport ctor start");
         // Order matters: GL surface goes in first (bottom layer); overlay
         // is added last so it draws on top.
         Children.Add(_gl);
         Children.Add(_overlay);
         ClipToBounds = true;
         Focusable = true;
+        Diag.Log("MeshViewport ctor done");
     }
 
     public void SetViewModel(MainViewModel vm)
