@@ -136,10 +136,14 @@ public sealed class VeldridBackend : IDisposable
     private Shader[] LoadShaders(string vert, string frag)
     {
         // OpenGL/GLES backends accept raw GLSL bytes; no SPIR-V cross-compilation needed.
+        L($"  CreateShader vert ({vert.Length + ShaderHeader.Length} bytes)");
         var vs = Factory.CreateShader(new ShaderDescription(
             ShaderStages.Vertex, Encoding.UTF8.GetBytes(ShaderHeader + vert), "main"));
+        L("  CreateShader vert OK");
+        L($"  CreateShader frag ({frag.Length + ShaderHeader.Length} bytes)");
         var fs = Factory.CreateShader(new ShaderDescription(
             ShaderStages.Fragment, Encoding.UTF8.GetBytes(ShaderHeader + frag), "main"));
+        L("  CreateShader frag OK");
         return new[] { vs, fs };
     }
 
