@@ -165,8 +165,10 @@ public class MeshGlSurface : OpenGlControlBase
         float pad = 0.05f * (zMax - zMin);
         zMin -= pad; zMax += pad;
 
-        if (trace) Diag.Log($"  RenderFrame zMin={zMin} zMax={zMax} drawFill={_cachedMode != DisplayMode.Wireframe}");
-        _renderer.RenderFrame(w, h, zMin, zMax, drawFill: _cachedMode != DisplayMode.Wireframe);
+        if (trace) Diag.Log($"  RenderFrame fb={fb} zMin={zMin} zMax={zMax} drawFill={_cachedMode != DisplayMode.Wireframe}");
+        _renderer.RenderFrame((uint)fb, w, h, zMin, zMax,
+            drawFill: _cachedMode != DisplayMode.Wireframe,
+            log: trace ? Diag.Log : null);
         if (trace) Diag.Log("  done");
         _frameCount++;
     }

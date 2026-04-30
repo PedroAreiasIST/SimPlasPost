@@ -276,12 +276,14 @@ void main() { frag = v_col; }";
     }
 
     /// <summary>
-    /// Issue draw commands for one frame. Caller is responsible for
-    /// installing the Avalonia framebuffer (it's the active GL framebuffer
-    /// when OnOpenGlRender is called) and calling glViewport.
+    /// Issue draw commands for one frame.  <paramref name="framebufferId"/> is the
+    /// Avalonia-provided framebuffer to render into (passed to OnOpenGlRender);
+    /// we bind it explicitly because Avalonia's UI compositor may have left a
+    /// different framebuffer current after its previous pass.
     /// </summary>
-    public void RenderFrame(int width, int height, float zNear, float zFar, bool drawFill)
+    public void RenderFrame(uint framebufferId, int width, int height, float zNear, float zFar, bool drawFill, Action<string>? log = null)
     {
+        _gl.BindFramebuffer(GlBindings.GL_FRAMEBUFFER, framebufferId);
         _gl.Viewport(0, 0, width, height);
         _gl.ClearColor(1, 1, 1, 1);
         _gl.Enable(GlBindings.GL_DEPTH_TEST);
@@ -289,6 +291,8 @@ void main() { frag = v_col; }";
         _gl.Disable(GlBindings.GL_BLEND);
         _gl.Disable(GlBindings.GL_CULL_FACE);
         _gl.Clear(GlBindings.GL_COLOR_BUFFER_BIT | GlBindings.GL_DEPTH_BUFFER_BIT);
+        var err = _gl.GetError();
+        if (err != GlBindings.GL_NO_ERROR) log?.Invoke($"GL error after clear: 0x{err:X}");
 
         _gl.UseProgram(_program);
         if (_locViewportDepth >= 0)
@@ -299,18 +303,24 @@ void main() { frag = v_col; }";
             BindAttribs(_meshVbo);
             _gl.BindBuffer(GlBindings.GL_ELEMENT_ARRAY_BUFFER, _meshIbo);
             _gl.DrawElements(GlBindings.GL_TRIANGLES, _meshIndexCount, GlBindings.GL_UNSIGNED_INT, IntPtr.Zero);
+            err = _gl.GetError();
+            if (err != GlBindings.GL_NO_ERROR) log?.Invoke($"GL error after DrawElements (mesh, {_meshIndexCount} idx): 0x{err:X}");
         }
 
         if (_edgeVbo != 0 && _edgeVertexCount > 0)
         {
             BindAttribs(_edgeVbo);
             _gl.DrawArrays(GlBindings.GL_LINES, 0, _edgeVertexCount);
+            err = _gl.GetError();
+            if (err != GlBindings.GL_NO_ERROR) log?.Invoke($"GL error after DrawArrays (edges, {_edgeVertexCount}): 0x{err:X}");
         }
 
         if (_segVbo != 0 && _segVertexCount > 0)
         {
             BindAttribs(_segVbo);
             _gl.DrawArrays(GlBindings.GL_LINES, 0, _segVertexCount);
+            err = _gl.GetError();
+            if (err != GlBindings.GL_NO_ERROR) log?.Invoke($"GL error after DrawArrays (segments, {_segVertexCount}): 0x{err:X}");
         }
 
         // Be a tidy guest: leave the program / vertex array unbound so the

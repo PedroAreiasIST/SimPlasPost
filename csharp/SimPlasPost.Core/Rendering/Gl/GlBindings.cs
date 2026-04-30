@@ -44,6 +44,8 @@ public sealed unsafe class GlBindings
 
     public const uint GL_NO_ERROR = 0x0000;
 
+    public const uint GL_FRAMEBUFFER = 0x8D40;
+
     // Delegate signatures (UnmanagedFunctionPointer = Cdecl by default for OpenGL on POSIX).
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint GlCreateShader(uint type);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlShaderSource(uint shader, int count, IntPtr* strings, int* lengths);
@@ -85,6 +87,7 @@ public sealed unsafe class GlBindings
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlDepthFunc(uint func);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint GlGetError();
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate IntPtr GlGetString(uint name);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlBindFramebuffer(uint target, uint framebuffer);
 
     public GlCreateShader CreateShader = null!;
     public GlShaderSource ShaderSource = null!;
@@ -126,6 +129,7 @@ public sealed unsafe class GlBindings
     public GlDepthFunc DepthFunc = null!;
     public GlGetError GetError = null!;
     public GlGetString GetString = null!;
+    public GlBindFramebuffer BindFramebuffer = null!;
 
     public string GlVersion { get; private set; } = "?";
     public bool IsGles { get; private set; }
@@ -181,6 +185,7 @@ public sealed unsafe class GlBindings
         b.DepthFunc = Get<GlDepthFunc>("glDepthFunc");
         b.GetError = Get<GlGetError>("glGetError");
         b.GetString = Get<GlGetString>("glGetString");
+        b.BindFramebuffer = Get<GlBindFramebuffer>("glBindFramebuffer");
 
         var ver = b.GetString(0x1F02 /* GL_VERSION */);
         b.GlVersion = ver != IntPtr.Zero ? (Marshal.PtrToStringAnsi(ver) ?? "?") : "?";
