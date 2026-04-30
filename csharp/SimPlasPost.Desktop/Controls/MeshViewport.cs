@@ -7,7 +7,7 @@ using SimPlasPost.Desktop.ViewModels;
 namespace SimPlasPost.Desktop.Controls;
 
 /// <summary>
-/// Composite viewport: a Veldrid-backed <see cref="MeshGlSurface"/> renders the
+/// Composite viewport: a GL-backed <see cref="MeshGlSurface"/> renders the
 /// 3D mesh; a transparent <see cref="MeshOverlay"/> drawn on top renders the
 /// color bar, axis triad, and info string. Pointer input is captured here and
 /// dispatched into the view-model's camera (arcball / pan / zoom).
