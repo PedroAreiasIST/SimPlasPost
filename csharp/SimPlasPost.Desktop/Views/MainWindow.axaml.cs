@@ -16,9 +16,13 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        Diag.Log("MainWindow ctor: InitializeComponent...");
         InitializeComponent();
+        Diag.Log("MainWindow ctor: InitializeComponent done");
         DataContext = _vm;
+        Diag.Log("MainWindow ctor: Viewport.SetViewModel...");
         Viewport.SetViewModel(_vm);
+        Diag.Log("MainWindow ctor: Viewport.SetViewModel done");
 
         // Initial state
         CbField.Items.Clear();

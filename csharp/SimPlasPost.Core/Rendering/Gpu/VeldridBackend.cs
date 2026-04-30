@@ -75,6 +75,9 @@ public sealed class VeldridBackend : IDisposable
         UniformSet = Factory.CreateResourceSet(new ResourceSetDescription(UniformLayout, UniformBuffer));
     }
 
+    public static Action<string>? Log { get; set; }
+    private static void L(string m) { try { Log?.Invoke("[Veldrid] " + m); } catch { } }
+
     /// <summary>
     /// Build pipelines for a target with the given output description. Pipelines
     /// must match the framebuffer they render into (color + depth formats), so
@@ -83,6 +86,7 @@ public sealed class VeldridBackend : IDisposable
     /// </summary>
     public void BuildPipelines(OutputDescription output)
     {
+        L("BuildPipelines start");
         TriPipeline?.Dispose();
         LinePipeline?.Dispose();
 
@@ -90,7 +94,9 @@ public sealed class VeldridBackend : IDisposable
             new VertexElementDescription("in_pos", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
             new VertexElementDescription("in_col", VertexElementSemantic.Color, VertexElementFormat.Byte4_Norm));
 
+        L("LoadShaders mesh");
         Shader[] meshShaders = LoadShaders(Shaders.MeshVert, Shaders.MeshFrag);
+        L("LoadShaders line");
         Shader[] lineShaders = LoadShaders(Shaders.LineVert, Shaders.LineFrag);
 
         var rasterizer = new RasterizerStateDescription(
@@ -102,6 +108,7 @@ public sealed class VeldridBackend : IDisposable
 
         var depthLessEqual = DepthStencilStateDescription.DepthOnlyLessEqual;
 
+        L("CreateGraphicsPipeline tri");
         TriPipeline = Factory.CreateGraphicsPipeline(new GraphicsPipelineDescription(
             BlendStateDescription.SingleOverrideBlend,
             depthLessEqual,
@@ -111,6 +118,7 @@ public sealed class VeldridBackend : IDisposable
             new[] { UniformLayout },
             output));
 
+        L("CreateGraphicsPipeline line");
         LinePipeline = Factory.CreateGraphicsPipeline(new GraphicsPipelineDescription(
             BlendStateDescription.SingleOverrideBlend,
             depthLessEqual,
@@ -122,6 +130,7 @@ public sealed class VeldridBackend : IDisposable
 
         foreach (var s in meshShaders) s.Dispose();
         foreach (var s in lineShaders) s.Dispose();
+        L("BuildPipelines done");
     }
 
     private Shader[] LoadShaders(string vert, string frag)
@@ -179,7 +188,9 @@ public sealed class VeldridBackend : IDisposable
             swapBuffers,
             setSyncToVerticalBlank);
 
+        L($"GraphicsDevice.CreateOpenGL {width}x{height}");
         var gd = GraphicsDevice.CreateOpenGL(options, platformInfo, width, height);
+        L($"CreateOpenGL OK BackendType={gd.BackendType}");
 
         // Veldrid sniffs the GL version after context wrapping and reports
         // BackendType.OpenGLES for an EGL/GLES context (typical Linux),
