@@ -113,18 +113,15 @@ public class MeshGlSurface : OpenGlControlBase
                 getProcAddress: name =>
                 {
                     var p = gl.GetProcAddress(name);
-                    // Some GL function names won't resolve (e.g. desktop-only
-                    // entry points on a GLES context); Veldrid handles a null
-                    // pointer for optional functions internally.  Log only when
-                    // the lookup fails AND the name looks like a core entry.
+                    if (p == IntPtr.Zero) Diag.Log($"  GetProcAddress('{name}') returned NULL");
                     return p;
                 },
-                makeCurrent: _ => { },
-                getCurrentContext: () => IntPtr.Zero,
-                clearCurrentContext: () => { },
-                deleteContext: _ => { },
-                swapBuffers: () => { },
-                setSyncToVerticalBlank: _ => { },
+                makeCurrent: ctx => Diag.Log($"  makeCurrent({ctx.ToInt64():X}) on thread t{Environment.CurrentManagedThreadId}"),
+                getCurrentContext: () => { Diag.Log($"  getCurrentContext on thread t{Environment.CurrentManagedThreadId}"); return IntPtr.Zero; },
+                clearCurrentContext: () => Diag.Log($"  clearCurrentContext on thread t{Environment.CurrentManagedThreadId}"),
+                deleteContext: ctx => Diag.Log($"  deleteContext({ctx.ToInt64():X})"),
+                swapBuffers: () => { /* Avalonia performs the swap */ },
+                setSyncToVerticalBlank: v => Diag.Log($"  setSyncToVerticalBlank({v})"),
                 contextHandle: IntPtr.Zero,
                 width: w, height: h);
 
