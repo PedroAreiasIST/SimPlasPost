@@ -191,7 +191,7 @@ public sealed unsafe class GlBindings
     public string GetShaderInfoLogString(uint shader)
     {
         int len = 0;
-        fixed (int* p = &len) GetShaderiv(shader, GL_INFO_LOG_LENGTH, p);
+        GetShaderiv(shader, GL_INFO_LOG_LENGTH, &len);
         if (len <= 0) return string.Empty;
         var buf = new byte[len];
         fixed (byte* p = buf) GetShaderInfoLog(shader, len, null, p);
@@ -201,7 +201,7 @@ public sealed unsafe class GlBindings
     public string GetProgramInfoLogString(uint program)
     {
         int len = 0;
-        fixed (int* p = &len) GetProgramiv(program, GL_INFO_LOG_LENGTH, p);
+        GetProgramiv(program, GL_INFO_LOG_LENGTH, &len);
         if (len <= 0) return string.Empty;
         var buf = new byte[len];
         fixed (byte* p = buf) GetProgramInfoLog(program, len, null, p);
