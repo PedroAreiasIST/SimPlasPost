@@ -8,7 +8,7 @@ using SimPlasPost.Desktop.ViewModels;
 namespace SimPlasPost.Desktop.Controls;
 
 /// <summary>
-/// Transparent Avalonia overlay drawn ON TOP of the Veldrid GL surface.
+/// Transparent Avalonia overlay drawn ON TOP of the GL surface.
 /// Renders the color bar, axis triad, and info string using Avalonia's
 /// vector text/path APIs so they keep crisp rasterization on HiDPI displays.
 /// Pointer events bubble up to the parent <see cref="MeshViewport"/>.

@@ -4,38 +4,33 @@ using SimPlasPost.Core.Colormap;
 using SimPlasPost.Core.Geometry;
 using SimPlasPost.Core.Models;
 using SimPlasPost.Core.Rendering;
-using SimPlasPost.Core.Rendering.Gpu;
+using SimPlasPost.Core.Rendering.Gl;
 using SimPlasPost.Desktop.ViewModels;
-using Veldrid;
 
 namespace SimPlasPost.Desktop.Controls;
 
 /// <summary>
-/// 3D mesh surface backed by Veldrid (OpenGL backend) hosted inside an Avalonia
-/// <see cref="OpenGlControlBase"/>. This control draws the filled mesh, edges,
-/// and contour/feature lines into the Avalonia GL framebuffer; it does not
-/// render any text overlay (the parent <see cref="MeshViewport"/> draws the
-/// color bar, axis triad and info string on top of this surface).
+/// 3D mesh surface backed by raw OpenGL via Avalonia <see cref="OpenGlControlBase"/>.
+/// Every GL call happens on the UI thread inside <see cref="OnOpenGlRender"/>,
+/// so there is no thread/context affinity issue (which Veldrid 4.9's OpenGL
+/// backend imposes and which Avalonia's GL integration cannot satisfy).
+///
+/// The control draws the filled mesh, edges, and contour/feature lines into
+/// the Avalonia GL framebuffer; it does not render any text overlay (the
+/// parent <see cref="MeshViewport"/> draws the color bar, axis triad and
+/// info string on top of this surface).
 /// </summary>
 public class MeshGlSurface : OpenGlControlBase
 {
-    static MeshGlSurface()
-    {
-        VeldridBackend.Log = Diag.Log;
-        Diag.Log("MeshGlSurface static ctor: Veldrid log hook installed");
-    }
-
     public MeshGlSurface()
     {
         Diag.Log("MeshGlSurface ctor");
     }
 
     private MainViewModel? _vm;
-    private VeldridBackend? _backend;
-    private VeldridMeshRenderer? _renderer;
-    private CommandList? _cl;
+    private GlBindings? _gl;
+    private GlMeshRenderer? _renderer;
 
-    // ─── Cached projected geometry (rebuilt only when state changes) ───
     private MeshData? _cachedMesh;
     private string? _cachedField;
     private bool _cachedShowDef;
@@ -91,12 +86,8 @@ public class MeshGlSurface : OpenGlControlBase
     {
         try
         {
-            uint w = (uint)Math.Max(1, Bounds.Width);
-            uint h = (uint)Math.Max(1, Bounds.Height);
-            Diag.Log($"OnOpenGlInit start (w={w} h={h})");
+            Diag.Log($"OnOpenGlInit start (w={Bounds.Width} h={Bounds.Height})");
 
-            // Log the active GL context info so we can tell from the trace
-            // exactly which profile Avalonia handed us.
             string vendor = "?", renderer = "?", version = "?", shading = "?";
             try
             {
@@ -105,30 +96,15 @@ public class MeshGlSurface : OpenGlControlBase
                 version  = gl.GetString(0x1F02 /* GL_VERSION */)                  ?? "?";
                 shading  = gl.GetString(0x8B8C /* GL_SHADING_LANGUAGE_VERSION */) ?? "?";
             }
-            catch (Exception strEx) { Diag.Log("gl.GetString threw: " + strEx.Message); }
+            catch (Exception e) { Diag.Log("gl.GetString threw: " + e.Message); }
             Diag.Log($"GL_VENDOR='{vendor}' GL_RENDERER='{renderer}' GL_VERSION='{version}' GLSL='{shading}'");
 
-            Diag.Log("Calling VeldridBackend.CreateOpenGL...");
-            _backend = VeldridBackend.CreateOpenGL(
-                getProcAddress: name =>
-                {
-                    var p = gl.GetProcAddress(name);
-                    if (p == IntPtr.Zero) Diag.Log($"  GetProcAddress('{name}') returned NULL");
-                    return p;
-                },
-                makeCurrent: ctx => Diag.Log($"  makeCurrent({ctx.ToInt64():X}) on thread t{Environment.CurrentManagedThreadId}"),
-                getCurrentContext: () => { Diag.Log($"  getCurrentContext on thread t{Environment.CurrentManagedThreadId}"); return IntPtr.Zero; },
-                clearCurrentContext: () => Diag.Log($"  clearCurrentContext on thread t{Environment.CurrentManagedThreadId}"),
-                deleteContext: ctx => Diag.Log($"  deleteContext({ctx.ToInt64():X})"),
-                swapBuffers: () => { /* Avalonia performs the swap */ },
-                setSyncToVerticalBlank: v => Diag.Log($"  setSyncToVerticalBlank({v})"),
-                contextHandle: IntPtr.Zero,
-                width: w, height: h);
+            Diag.Log("Loading GL bindings...");
+            _gl = GlBindings.Load(name => gl.GetProcAddress(name));
+            Diag.Log($"GL bindings loaded — IsGles={_gl.IsGles}");
 
-            Diag.Log($"Veldrid OK — BackendType={_backend.Device.BackendType}");
-
-            _renderer = new VeldridMeshRenderer(_backend);
-            _cl = _backend.Factory.CreateCommandList();
+            Diag.Log("Constructing GlMeshRenderer...");
+            _renderer = new GlMeshRenderer(_gl, Diag.Log);
             Diag.Log("OnOpenGlInit done");
         }
         catch (Exception ex)
@@ -140,24 +116,16 @@ public class MeshGlSurface : OpenGlControlBase
 
     protected override void OnOpenGlDeinit(GlInterface gl)
     {
-        try
-        {
-            _cl?.Dispose();
-            _renderer?.Dispose();
-            _backend?.Dispose();
-        }
+        try { _renderer?.Dispose(); }
         catch (Exception ex) { Diag.Log("OnOpenGlDeinit threw: " + ex); }
-        _cl = null;
         _renderer = null;
-        _backend = null;
+        _gl = null;
     }
 
+    private int _frameCount;
     protected override void OnOpenGlRender(GlInterface gl, int fb)
     {
-        try
-        {
-            RenderInner(fb);
-        }
+        try { RenderInner(fb); }
         catch (Exception ex)
         {
             Diag.Log("OnOpenGlRender threw: " + ex);
@@ -165,28 +133,16 @@ public class MeshGlSurface : OpenGlControlBase
         }
     }
 
-    private int _frameCount;
     private void RenderInner(int fb)
     {
-        if (_vm == null || _backend == null || _renderer == null || _cl == null) return;
+        if (_vm == null || _gl == null || _renderer == null) return;
         if (_vm.MeshData == null) return;
 
-        // Log the first few frames step-by-step.  After we've confirmed
-        // the rendering works once, the per-step logging is silenced.
         bool trace = _frameCount < 3;
         if (trace) Diag.Log($"RenderInner frame={_frameCount} fb={fb}");
 
         int w = (int)Math.Max(1, Bounds.Width);
         int h = (int)Math.Max(1, Bounds.Height);
-
-        if (_backend.Device.MainSwapchain.Framebuffer.Width != (uint)w ||
-            _backend.Device.MainSwapchain.Framebuffer.Height != (uint)h)
-        {
-            if (trace) Diag.Log($"  ResizeMainWindow {w}x{h}");
-            _backend.Device.ResizeMainWindow((uint)w, (uint)h);
-            if (trace) Diag.Log("  BuildPipelines");
-            _backend.BuildPipelines(_backend.Device.MainSwapchain.Framebuffer.OutputDescription);
-        }
 
         if (_geomDirty || GeometryChanged())
         {
@@ -209,22 +165,12 @@ public class MeshGlSurface : OpenGlControlBase
         float pad = 0.05f * (zMax - zMin);
         zMin -= pad; zMax += pad;
 
-        if (trace) Diag.Log($"  UpdateUniforms zMin={zMin} zMax={zMax}");
-        _backend.UpdateUniforms(w, h, zMin, zMax);
-
-        if (trace) Diag.Log("  cl.Begin / RenderFrame / cl.End");
-        _cl.Begin();
-        _renderer.RenderFrame(_cl, _backend.Device.MainSwapchain.Framebuffer, RgbaFloat.White,
-            drawFill: _cachedMode != DisplayMode.Wireframe);
-        _cl.End();
-
-        if (trace) Diag.Log("  SubmitCommands");
-        _backend.Device.SubmitCommands(_cl);
+        if (trace) Diag.Log($"  RenderFrame zMin={zMin} zMax={zMax} drawFill={_cachedMode != DisplayMode.Wireframe}");
+        _renderer.RenderFrame(w, h, zMin, zMax, drawFill: _cachedMode != DisplayMode.Wireframe);
         if (trace) Diag.Log("  done");
         _frameCount++;
     }
 
-    /// <summary>Rebuild cached projected geometry when mesh/field/mode changes.</summary>
     private void RebuildGeometry()
     {
         if (_vm?.MeshData == null) return;
@@ -366,11 +312,6 @@ public class MeshGlSurface : OpenGlControlBase
         }
     }
 
-    /// <summary>
-    /// Project world-space vertices to screen pixels using the current camera and
-    /// upload the result to the GPU. Edges and segments are projected and uploaded
-    /// the same way so all geometry shares the same depth space.
-    /// </summary>
     private void ProjectAndUpload(int w, int h)
     {
         if (_vm == null || _renderer == null || _nVerts == 0) return;
@@ -399,9 +340,6 @@ public class MeshGlSurface : OpenGlControlBase
         var feat = ProjectWorldSegments(_featEdgePos, ex, ey, ez, rrx, rry, rrz, urx, ury, urz, frx, fry, frz, scale, hw, hh);
         var con  = ProjectWorldSegments(_contourPos,  ex, ey, ez, rrx, rry, rrz, urx, ury, urz, frx, fry, frz, scale, hw, hh);
 
-        // Combine both segment sources into a single buffer so the renderer
-        // issues one draw per frame.  Feature edges use a fixed dark color; iso
-        // contour lines carry their own per-segment Turbo color.
         int nFeat = feat.Length / 6;
         int nCon  = con.Length  / 6;
         if (nFeat + nCon == 0)
