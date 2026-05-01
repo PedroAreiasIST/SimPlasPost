@@ -71,6 +71,12 @@ void main() { frag = v_col; }";
     private readonly int _locCol;
     private readonly int _locViewportDepth;
 
+    // VAO is mandatory on core profile and harmless on compatibility profile;
+    // some drivers also reject glVertexAttribPointer with no VAO bound even
+    // on compat.  We keep one for the lifetime of the renderer and rebind it
+    // every frame in case Avalonia's compositor swaps it out.
+    private uint _vao;
+
     private uint _meshVbo, _meshIbo;
     private uint _edgeVbo;
     private uint _segVbo;
@@ -84,6 +90,12 @@ void main() { frag = v_col; }";
         _gl = gl;
         var header = gl.IsGles ? HeaderGles : HeaderDesktop;
         log?.Invoke($"GlMeshRenderer: header={header.Replace("\n", "\\n")}");
+
+        uint vao = 0;
+        _gl.GenVertexArrays(1, &vao);
+        _gl.BindVertexArray(vao);
+        _vao = vao;
+        log?.Invoke($"GlMeshRenderer: created VAO id={_vao}");
 
         var vs = CompileShader(GlBindings.GL_VERTEX_SHADER,   header + MeshVertBody, log, "vert");
         var fs = CompileShader(GlBindings.GL_FRAGMENT_SHADER, header + MeshFragBody, log, "frag");
@@ -284,12 +296,16 @@ void main() { frag = v_col; }";
     public void RenderFrame(uint framebufferId, int width, int height, float zNear, float zFar, bool drawFill, Action<string>? log = null)
     {
         _gl.BindFramebuffer(GlBindings.GL_FRAMEBUFFER, framebufferId);
+        _gl.BindVertexArray(_vao);
         _gl.Viewport(0, 0, width, height);
         _gl.ClearColor(1, 1, 1, 1);
         _gl.Enable(GlBindings.GL_DEPTH_TEST);
         _gl.DepthFunc(GlBindings.GL_LEQUAL);
+        _gl.DepthMask(1);
+        _gl.ColorMask(1, 1, 1, 1);
         _gl.Disable(GlBindings.GL_BLEND);
         _gl.Disable(GlBindings.GL_CULL_FACE);
+        _gl.Disable(GlBindings.GL_SCISSOR_TEST);
         _gl.Clear(GlBindings.GL_COLOR_BUFFER_BIT | GlBindings.GL_DEPTH_BUFFER_BIT);
         var err = _gl.GetError();
         if (err != GlBindings.GL_NO_ERROR) log?.Invoke($"GL error after clear: 0x{err:X}");
@@ -353,6 +369,12 @@ void main() { frag = v_col; }";
         DeleteBuffer(ref _meshIbo);
         DeleteBuffer(ref _edgeVbo);
         DeleteBuffer(ref _segVbo);
+        if (_vao != 0)
+        {
+            uint vao = _vao;
+            _gl.DeleteVertexArrays(1, &vao);
+            _vao = 0;
+        }
         if (_program != 0) _gl.DeleteProgram(_program);
     }
 

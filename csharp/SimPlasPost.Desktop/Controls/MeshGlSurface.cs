@@ -141,8 +141,18 @@ public class MeshGlSurface : OpenGlControlBase
         bool trace = _frameCount < 3;
         if (trace) Diag.Log($"RenderInner frame={_frameCount} fb={fb}");
 
-        int w = (int)Math.Max(1, Bounds.Width);
-        int h = (int)Math.Max(1, Bounds.Height);
+        // Avalonia configures the GL viewport to the physical-pixel size of
+        // the framebuffer before calling OnOpenGlRender.  On HiDPI displays
+        // that's larger than Bounds.Width/Height (which are in logical
+        // pixels) — using Bounds for the projection and viewport produces a
+        // correctly-sized image rendered into a small corner of the
+        // framebuffer.  Query Avalonia's viewport directly and use those
+        // dimensions consistently for projection, glViewport, and the
+        // shader's screen-space → NDC mapping.
+        var (vx, vy, vw, vh) = _gl.GetViewportRect();
+        int w = vw > 0 ? vw : Math.Max(1, (int)Bounds.Width);
+        int h = vh > 0 ? vh : Math.Max(1, (int)Bounds.Height);
+        if (trace) Diag.Log($"  GL viewport=({vx},{vy},{vw},{vh}) → using {w}x{h}");
 
         if (_geomDirty || GeometryChanged())
         {
