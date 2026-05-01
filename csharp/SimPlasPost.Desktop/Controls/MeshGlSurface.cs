@@ -1,3 +1,5 @@
+using Avalonia;
+using Avalonia.Controls;
 using Avalonia.OpenGL;
 using Avalonia.OpenGL.Controls;
 using SimPlasPost.Core.Colormap;
@@ -141,18 +143,15 @@ public class MeshGlSurface : OpenGlControlBase
         bool trace = _frameCount < 3;
         if (trace) Diag.Log($"RenderInner frame={_frameCount} fb={fb}");
 
-        // Avalonia configures the GL viewport to the physical-pixel size of
-        // the framebuffer before calling OnOpenGlRender.  On HiDPI displays
-        // that's larger than Bounds.Width/Height (which are in logical
-        // pixels) — using Bounds for the projection and viewport produces a
-        // correctly-sized image rendered into a small corner of the
-        // framebuffer.  Query Avalonia's viewport directly and use those
-        // dimensions consistently for projection, glViewport, and the
-        // shader's screen-space → NDC mapping.
-        var (vx, vy, vw, vh) = _gl.GetViewportRect();
-        int w = vw > 0 ? vw : Math.Max(1, (int)Bounds.Width);
-        int h = vh > 0 ? vh : Math.Max(1, (int)Bounds.Height);
-        if (trace) Diag.Log($"  GL viewport=({vx},{vy},{vw},{vh}) → using {w}x{h}");
+        // The Avalonia framebuffer size is Bounds × RenderScaling — Bounds
+        // are in logical pixels, the framebuffer is in physical pixels.  We
+        // can't trust glGetIntegerv(GL_VIEWPORT) because Avalonia doesn't
+        // actually pre-configure the viewport; it leaves it at the GL default
+        // (1×1 since context creation), so reading it gives us nothing useful.
+        double scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+        int w = Math.Max(1, (int)Math.Round(Bounds.Width  * scaling));
+        int h = Math.Max(1, (int)Math.Round(Bounds.Height * scaling));
+        if (trace) Diag.Log($"  Bounds={Bounds.Width:F0}x{Bounds.Height:F0} scaling={scaling} → fb {w}x{h}");
 
         if (_geomDirty || GeometryChanged())
         {
