@@ -45,6 +45,8 @@ public sealed unsafe class GlBindings
     public const uint GL_NO_ERROR = 0x0000;
 
     public const uint GL_FRAMEBUFFER = 0x8D40;
+    public const uint GL_VIEWPORT = 0x0BA2;
+    public const uint GL_SCISSOR_TEST = 0x0C11;
 
     // Delegate signatures (UnmanagedFunctionPointer = Cdecl by default for OpenGL on POSIX).
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint GlCreateShader(uint type);
@@ -88,6 +90,12 @@ public sealed unsafe class GlBindings
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate uint GlGetError();
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate IntPtr GlGetString(uint name);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlBindFramebuffer(uint target, uint framebuffer);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlGetIntegerv(uint pname, int* @params);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlGenVertexArrays(int n, uint* arrays);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlBindVertexArray(uint array);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlDeleteVertexArrays(int n, uint* arrays);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlDepthMask(byte flag);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlColorMask(byte r, byte g, byte b, byte a);
 
     public GlCreateShader CreateShader = null!;
     public GlShaderSource ShaderSource = null!;
@@ -130,6 +138,12 @@ public sealed unsafe class GlBindings
     public GlGetError GetError = null!;
     public GlGetString GetString = null!;
     public GlBindFramebuffer BindFramebuffer = null!;
+    public GlGetIntegerv GetIntegerv = null!;
+    public GlGenVertexArrays GenVertexArrays = null!;
+    public GlBindVertexArray BindVertexArray = null!;
+    public GlDeleteVertexArrays DeleteVertexArrays = null!;
+    public GlDepthMask DepthMask = null!;
+    public GlColorMask ColorMask = null!;
 
     public string GlVersion { get; private set; } = "?";
     public bool IsGles { get; private set; }
@@ -186,11 +200,33 @@ public sealed unsafe class GlBindings
         b.GetError = Get<GlGetError>("glGetError");
         b.GetString = Get<GlGetString>("glGetString");
         b.BindFramebuffer = Get<GlBindFramebuffer>("glBindFramebuffer");
+        b.GetIntegerv = Get<GlGetIntegerv>("glGetIntegerv");
+        b.GenVertexArrays = Get<GlGenVertexArrays>("glGenVertexArrays");
+        b.BindVertexArray = Get<GlBindVertexArray>("glBindVertexArray");
+        b.DeleteVertexArrays = Get<GlDeleteVertexArrays>("glDeleteVertexArrays");
+        b.DepthMask = Get<GlDepthMask>("glDepthMask");
+        b.ColorMask = Get<GlColorMask>("glColorMask");
 
         var ver = b.GetString(0x1F02 /* GL_VERSION */);
         b.GlVersion = ver != IntPtr.Zero ? (Marshal.PtrToStringAnsi(ver) ?? "?") : "?";
         b.IsGles = b.GlVersion.IndexOf("OpenGL ES", StringComparison.OrdinalIgnoreCase) >= 0;
         return b;
+    }
+
+    /// <summary>
+    /// Read the GL viewport rectangle that is currently set on this context.
+    /// Avalonia's OpenGlControlBase configures the viewport to match the
+    /// Avalonia framebuffer's physical-pixel size before calling
+    /// OnOpenGlRender, so this is the dimension we should render into and
+    /// project against — using <c>Bounds.Width/Height</c> directly is wrong
+    /// on HiDPI displays where physical pixels are 2× (or more) the
+    /// logical-pixel control bounds.
+    /// </summary>
+    public (int x, int y, int w, int h) GetViewportRect()
+    {
+        var vp = stackalloc int[4];
+        GetIntegerv(GL_VIEWPORT, vp);
+        return (vp[0], vp[1], vp[2], vp[3]);
     }
 
     public string GetShaderInfoLogString(uint shader)
