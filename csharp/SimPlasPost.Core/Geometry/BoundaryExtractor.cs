@@ -13,40 +13,74 @@ public static class BoundaryExtractor
     {
         if (!is3D)
         {
+            // 2D mesh: every Tri3/Quad4 face is a surface face. Lower-D
+            // elements (Point1/Bar2) are extracted separately by the caller
+            // and must not flow into the triangulation path here.
             var faces = new List<int[]>();
             foreach (var el in elements)
             {
                 if (!FaceTable.Faces.TryGetValue(el.Type, out var ft)) continue;
+                if (ft.Dim < 2) continue;
                 foreach (var f in ft.GetFaces(el.Conn))
                     faces.Add(f);
             }
             return faces;
         }
 
-        // 3D: keep faces that appear exactly once
+        // 3D mesh: faces of 3D elements (Tet4/Hex8/Penta6) are only kept
+        // when they appear exactly once across the volume mesh; stand-alone
+        // 2D elements (Tri3/Quad4 floating in a 3D mesh) are always
+        // boundary because no enclosing volume can hide them.  Lower-D
+        // elements (Point1/Bar2) are returned via ExtractByDim instead.
         var faceCount = new Dictionary<string, int>();
         var faceList = new List<(string Key, int[] Face)>();
+        var standaloneFaces = new List<int[]>();
 
         foreach (var el in elements)
         {
             if (!FaceTable.Faces.TryGetValue(el.Type, out var ft)) continue;
-            if (ft.Dim != 3) continue;
-
-            foreach (var f in ft.GetFaces(el.Conn))
+            if (ft.Dim == 2)
             {
-                var sorted = (int[])f.Clone();
-                Array.Sort(sorted);
-                var key = string.Join(",", sorted);
+                foreach (var f in ft.GetFaces(el.Conn))
+                    standaloneFaces.Add(f);
+            }
+            else if (ft.Dim == 3)
+            {
+                foreach (var f in ft.GetFaces(el.Conn))
+                {
+                    var sorted = (int[])f.Clone();
+                    Array.Sort(sorted);
+                    var key = string.Join(",", sorted);
 
-                faceCount[key] = faceCount.GetValueOrDefault(key, 0) + 1;
-                faceList.Add((key, f));
+                    faceCount[key] = faceCount.GetValueOrDefault(key, 0) + 1;
+                    faceList.Add((key, f));
+                }
             }
         }
 
-        return faceList
+        var result = faceList
             .Where(pair => faceCount[pair.Key] == 1)
             .Select(pair => pair.Face)
             .ToList();
+        result.AddRange(standaloneFaces);
+        return result;
+    }
+
+    /// <summary>
+    /// Collect the connectivity of every element whose face-table dimension
+    /// matches <paramref name="dim"/>.  Used to extract Point1 (Dim=0) and
+    /// Bar2 (Dim=1) elements separately from the surface mesh: those are
+    /// always visible and don't participate in face-cancellation.
+    /// </summary>
+    public static List<int[]> ExtractByDim(List<Element> elements, int dim)
+    {
+        var result = new List<int[]>();
+        foreach (var el in elements)
+        {
+            if (FaceTable.Faces.TryGetValue(el.Type, out var ft) && ft.Dim == dim)
+                result.Add(el.Conn);
+        }
+        return result;
     }
 
     /// <summary>

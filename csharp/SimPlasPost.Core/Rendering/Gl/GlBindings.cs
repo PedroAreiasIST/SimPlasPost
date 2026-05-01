@@ -33,6 +33,8 @@ public sealed unsafe class GlBindings
 
     public const uint GL_TRIANGLES = 0x0004;
     public const uint GL_LINES = 0x0001;
+    public const uint GL_POINTS = 0x0000;
+    public const uint GL_PROGRAM_POINT_SIZE = 0x8642;
 
     public const uint GL_DEPTH_TEST = 0x0B71;
     public const uint GL_BLEND = 0x0BE2;
@@ -66,6 +68,7 @@ public sealed unsafe class GlBindings
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int GlGetUniformLocation(uint program, byte* name);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlUniform4f(int location, float x, float y, float z, float w);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlUniform1f(int location, float x);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int GlGetAttribLocation(uint program, byte* name);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlBindAttribLocation(uint program, uint index, byte* name);
 
@@ -96,6 +99,7 @@ public sealed unsafe class GlBindings
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlDeleteVertexArrays(int n, uint* arrays);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlDepthMask(byte flag);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlColorMask(byte r, byte g, byte b, byte a);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void GlPointSize(float size);
 
     public GlCreateShader CreateShader = null!;
     public GlShaderSource ShaderSource = null!;
@@ -114,6 +118,7 @@ public sealed unsafe class GlBindings
 
     public GlGetUniformLocation GetUniformLocation = null!;
     public GlUniform4f Uniform4f = null!;
+    public GlUniform1f Uniform1f = null!;
     public GlGetAttribLocation GetAttribLocation = null!;
     public GlBindAttribLocation BindAttribLocation = null!;
 
@@ -144,6 +149,7 @@ public sealed unsafe class GlBindings
     public GlDeleteVertexArrays DeleteVertexArrays = null!;
     public GlDepthMask DepthMask = null!;
     public GlColorMask ColorMask = null!;
+    public GlPointSize PointSize = null!;
 
     public string GlVersion { get; private set; } = "?";
     public bool IsGles { get; private set; }
@@ -176,6 +182,7 @@ public sealed unsafe class GlBindings
 
         b.GetUniformLocation = Get<GlGetUniformLocation>("glGetUniformLocation");
         b.Uniform4f = Get<GlUniform4f>("glUniform4f");
+        b.Uniform1f = Get<GlUniform1f>("glUniform1f");
         b.GetAttribLocation = Get<GlGetAttribLocation>("glGetAttribLocation");
         b.BindAttribLocation = Get<GlBindAttribLocation>("glBindAttribLocation");
 
@@ -206,6 +213,7 @@ public sealed unsafe class GlBindings
         b.DeleteVertexArrays = Get<GlDeleteVertexArrays>("glDeleteVertexArrays");
         b.DepthMask = Get<GlDepthMask>("glDepthMask");
         b.ColorMask = Get<GlColorMask>("glColorMask");
+        b.PointSize = Get<GlPointSize>("glPointSize");
 
         var ver = b.GetString(0x1F02 /* GL_VERSION */);
         b.GlVersion = ver != IntPtr.Zero ? (Marshal.PtrToStringAnsi(ver) ?? "?") : "?";

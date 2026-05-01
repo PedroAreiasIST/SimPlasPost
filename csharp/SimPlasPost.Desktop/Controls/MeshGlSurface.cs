@@ -56,6 +56,11 @@ public class MeshGlSurface : OpenGlControlBase
     private float[] _featEdgePos = Array.Empty<float>();
     private float[] _contourPos = Array.Empty<float>();
     private uint[] _contourColors = Array.Empty<uint>();
+    // Connectivity for stand-alone Bar2 / Point1 elements (kept as flat
+    // node-index arrays so the projection step can map them through _sx/_sy/_sz
+    // straight into the GPU buffers without re-extraction every frame).
+    private int[] _barNodes = Array.Empty<int>();
+    private int[] _pointNodes = Array.Empty<int>();
 
     private float[] _sx = Array.Empty<float>();
     private float[] _sy = Array.Empty<float>();
@@ -321,6 +326,20 @@ public class MeshGlSurface : OpenGlControlBase
         {
             _sx = new float[_nVerts]; _sy = new float[_nVerts]; _sz = new float[_nVerts];
         }
+
+        // Stand-alone bar / point elements: harvest their connectivity once
+        // here so per-frame uploading is just a node-index lookup against
+        // _sx/_sy/_sz.
+        var bars = BoundaryExtractor.ExtractByDim(mesh.Elements, 1);
+        _barNodes = new int[bars.Count * 2];
+        for (int i = 0; i < bars.Count; i++)
+        {
+            _barNodes[i * 2 + 0] = bars[i][0];
+            _barNodes[i * 2 + 1] = bars[i][1];
+        }
+        var points = BoundaryExtractor.ExtractByDim(mesh.Elements, 0);
+        _pointNodes = new int[points.Count];
+        for (int i = 0; i < points.Count; i++) _pointNodes[i] = points[i][0];
     }
 
     private void ProjectAndUpload(int w, int h)
@@ -356,16 +375,23 @@ public class MeshGlSurface : OpenGlControlBase
         if (nFeat + nCon == 0)
         {
             _renderer.UploadSegments(ReadOnlySpan<float>.Empty, null, 0xFF222222);
-            return;
+        }
+        else
+        {
+            var allSeg = new float[(nFeat + nCon) * 6];
+            var allCol = new uint[nFeat + nCon];
+            Array.Copy(feat, 0, allSeg, 0, feat.Length);
+            Array.Copy(con,  0, allSeg, feat.Length, con.Length);
+            for (int i = 0; i < nFeat; i++) allCol[i] = 0xFF222222u;
+            for (int i = 0; i < nCon;  i++) allCol[nFeat + i] = _contourColors.Length > i ? _contourColors[i] : 0xFF222222u;
+            _renderer.UploadSegments(allSeg, allCol, 0xFF222222);
         }
 
-        var allSeg = new float[(nFeat + nCon) * 6];
-        var allCol = new uint[nFeat + nCon];
-        Array.Copy(feat, 0, allSeg, 0, feat.Length);
-        Array.Copy(con,  0, allSeg, feat.Length, con.Length);
-        for (int i = 0; i < nFeat; i++) allCol[i] = 0xFF222222u;
-        for (int i = 0; i < nCon;  i++) allCol[nFeat + i] = _contourColors.Length > i ? _contourColors[i] : 0xFF222222u;
-        _renderer.UploadSegments(allSeg, allCol, 0xFF222222);
+        // Stand-alone Bar2 / Point1 elements share the per-vertex color
+        // arrays with the rest of the mesh so they pick up the active field
+        // shading; positions come from the projected _sx/_sy/_sz too.
+        _renderer.UploadBars(_sx, _sy, _sz, _vertR, _vertG, _vertB, _barNodes);
+        _renderer.UploadPoints(_sx, _sy, _sz, _vertR, _vertG, _vertB, _pointNodes);
     }
 
     private static float[] ProjectWorldSegments(

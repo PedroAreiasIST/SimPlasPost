@@ -25,6 +25,25 @@ public class ProjectedContour
     public double B { get; set; }
 }
 
+/// <summary>Stand-alone Bar2 line element projected to screen coordinates.</summary>
+public class ProjectedBar
+{
+    public double[] P1 { get; set; } = new double[2];
+    public double[] P2 { get; set; } = new double[2];
+    public double R { get; set; }
+    public double G { get; set; }
+    public double B { get; set; }
+}
+
+/// <summary>Stand-alone Point1 element projected to screen coordinates.</summary>
+public class ProjectedPoint
+{
+    public double[] P { get; set; } = new double[2];
+    public double R { get; set; }
+    public double G { get; set; }
+    public double B { get; set; }
+}
+
 public class LinePreset
 {
     public string Name { get; set; } = "";
@@ -64,6 +83,8 @@ public class ExportScene
     public List<ProjectedFace> Faces { get; set; } = new();
     public List<ProjectedEdge> VisibleEdges { get; set; } = new();
     public List<ProjectedContour> Contours { get; set; } = new();
+    public List<ProjectedBar> Bars { get; set; } = new();
+    public List<ProjectedPoint> Points { get; set; } = new();
     public LinePreset Lp { get; set; } = LinePreset.Presets[2];
     public string? FieldName { get; set; }
     public double FMin { get; set; }

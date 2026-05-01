@@ -187,9 +187,49 @@ public static class SceneBuilder
         // Wireframe mode: no color bar, no field coloring
         string? displayFieldName = dMode == DisplayMode.Wireframe ? null : activeField;
 
+        // Stand-alone Bar2 / Point1 elements: always exported, regardless
+        // of display mode.  Color comes from the active scalar field at the
+        // element's nodes (averaged for bars, sampled for points); when no
+        // field is active, fall back to a neutral charcoal so they remain
+        // legible against the white page.
+        var bars = new List<ProjectedBar>();
+        var points = new List<ProjectedPoint>();
+        foreach (var conn in BoundaryExtractor.ExtractByDim(meshData.Elements, 1))
+        {
+            var pa = Camera.Project(dp[conn[0]], cam, orthoHH, w, h);
+            var pb = Camera.Project(dp[conn[1]], cam, orthoHH, w, h);
+            (double r, double g, double b) col = (0.13, 0.13, 0.13);
+            if (fv != null)
+            {
+                double t = ((fv[conn[0]] + fv[conn[1]]) * 0.5 - efMin) / efSpan;
+                col = TurboColormap.Sample(t);
+            }
+            bars.Add(new ProjectedBar
+            {
+                P1 = new[] { pa[0], pa[1] }, P2 = new[] { pb[0], pb[1] },
+                R = col.r, G = col.g, B = col.b,
+            });
+        }
+        foreach (var conn in BoundaryExtractor.ExtractByDim(meshData.Elements, 0))
+        {
+            var p = Camera.Project(dp[conn[0]], cam, orthoHH, w, h);
+            (double r, double g, double b) col = (0.13, 0.13, 0.13);
+            if (fv != null)
+            {
+                double t = (fv[conn[0]] - efMin) / efSpan;
+                col = TurboColormap.Sample(t);
+            }
+            points.Add(new ProjectedPoint
+            {
+                P = new[] { p[0], p[1] },
+                R = col.r, G = col.g, B = col.b,
+            });
+        }
+
         return new ExportScene
         {
             Faces = exportFaces, VisibleEdges = visibleEdges, Contours = contours,
+            Bars = bars, Points = points,
             Lp = lp, FieldName = displayFieldName, FMin = efMin, FMax = efMax,
             W = w, H = h, Mode = dMode, Rotation = camParams.Rot,
         };

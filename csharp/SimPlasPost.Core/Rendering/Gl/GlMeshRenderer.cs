@@ -38,6 +38,7 @@ public sealed unsafe class GlMeshRenderer : IDisposable
 in vec3 in_pos;
 in vec4 in_col;
 uniform vec4 viewport_depth;  // x=w, y=h, z=zNear, w=zFar
+uniform float u_point_size;   // in pixels; only honoured when drawing GL_POINTS
 out vec4 v_col;
 void main()
 {
@@ -50,6 +51,7 @@ void main()
     float zSpan = max(zFar - zNear, 1e-6);
     float cz = ((in_pos.z - zNear) / zSpan) * 2.0 - 1.0;
     gl_Position = vec4(cx, cy, cz, 1.0);
+    gl_PointSize = u_point_size;
     v_col = in_col;
 }";
 
@@ -70,6 +72,7 @@ void main() { frag = v_col; }";
     private readonly int _locPos;
     private readonly int _locCol;
     private readonly int _locViewportDepth;
+    private readonly int _locPointSize;
 
     // VAO is mandatory on core profile and harmless on compatibility profile;
     // some drivers also reject glVertexAttribPointer with no VAO bound even
@@ -80,10 +83,14 @@ void main() { frag = v_col; }";
     private uint _meshVbo, _meshIbo;
     private uint _edgeVbo;
     private uint _segVbo;
-    private int _meshVboSize, _meshIboSize, _edgeVboSize, _segVboSize;
+    private uint _barVbo;
+    private uint _pointVbo;
+    private int _meshVboSize, _meshIboSize, _edgeVboSize, _segVboSize, _barVboSize, _pointVboSize;
     private int _meshIndexCount;
     private int _edgeVertexCount;
     private int _segVertexCount;
+    private int _barVertexCount;
+    private int _pointVertexCount;
 
     public GlMeshRenderer(GlBindings gl, Action<string>? log = null)
     {
@@ -123,7 +130,8 @@ void main() { frag = v_col; }";
         _locPos = GetAttribLocation(_program, "in_pos");
         _locCol = GetAttribLocation(_program, "in_col");
         _locViewportDepth = GetUniformLocation(_program, "viewport_depth");
-        log?.Invoke($"GlMeshRenderer: locPos={_locPos} locCol={_locCol} locViewportDepth={_locViewportDepth}");
+        _locPointSize     = GetUniformLocation(_program, "u_point_size");
+        log?.Invoke($"GlMeshRenderer: locPos={_locPos} locCol={_locCol} locViewportDepth={_locViewportDepth} locPointSize={_locPointSize}");
     }
 
     private uint CompileShader(uint type, string src, Action<string>? log, string tag)
@@ -264,6 +272,51 @@ void main() { frag = v_col; }";
     }
 
     /// <summary>
+    /// Upload Bar2 elements (stand-alone line segments). <paramref name="bars"/>
+    /// is laid out as 2 vertex indices per bar; positions and colors are
+    /// pulled from the shared per-vertex arrays so structural bars pick up
+    /// the same field-driven shading as everything else.
+    /// </summary>
+    public void UploadBars(
+        ReadOnlySpan<float> sx, ReadOnlySpan<float> sy, ReadOnlySpan<float> sz,
+        ReadOnlySpan<byte> vR, ReadOnlySpan<byte> vG, ReadOnlySpan<byte> vB,
+        int[] bars)
+    {
+        int nBars = bars.Length / 2;
+        if (nBars == 0) { _barVertexCount = 0; return; }
+
+        var verts = new GlVertex[nBars * 2];
+        for (int i = 0; i < nBars; i++)
+        {
+            int a = bars[i * 2], b = bars[i * 2 + 1];
+            verts[i * 2 + 0] = new GlVertex(sx[a], sy[a], sz[a], vR[a], vG[a], vB[a]);
+            verts[i * 2 + 1] = new GlVertex(sx[b], sy[b], sz[b], vR[b], vG[b], vB[b]);
+        }
+        UploadBuffer(ref _barVbo, ref _barVboSize, GlBindings.GL_ARRAY_BUFFER, verts);
+        _barVertexCount = verts.Length;
+    }
+
+    /// <summary>
+    /// Upload Point1 elements (stand-alone vertices) — drawn as
+    /// <see cref="GlBindings.GL_POINTS"/> with a fixed pixel size.
+    /// </summary>
+    public void UploadPoints(
+        ReadOnlySpan<float> sx, ReadOnlySpan<float> sy, ReadOnlySpan<float> sz,
+        ReadOnlySpan<byte> vR, ReadOnlySpan<byte> vG, ReadOnlySpan<byte> vB,
+        int[] pointNodes)
+    {
+        if (pointNodes.Length == 0) { _pointVertexCount = 0; return; }
+        var verts = new GlVertex[pointNodes.Length];
+        for (int i = 0; i < pointNodes.Length; i++)
+        {
+            int n = pointNodes[i];
+            verts[i] = new GlVertex(sx[n], sy[n], sz[n], vR[n], vG[n], vB[n]);
+        }
+        UploadBuffer(ref _pointVbo, ref _pointVboSize, GlBindings.GL_ARRAY_BUFFER, verts);
+        _pointVertexCount = verts.Length;
+    }
+
+    /// <summary>
     /// Upload feature edges and iso-contour line segments. <paramref name="segments"/>
     /// is laid out as 6 floats per segment (ax,ay,az, bx,by,bz). If
     /// <paramref name="perSegmentColors"/> is null, <paramref name="defaultColor"/>
@@ -306,6 +359,9 @@ void main() { frag = v_col; }";
         _gl.Disable(GlBindings.GL_BLEND);
         _gl.Disable(GlBindings.GL_CULL_FACE);
         _gl.Disable(GlBindings.GL_SCISSOR_TEST);
+        // Allow the vertex shader's gl_PointSize to take effect on desktop GL
+        // (it's always honoured on GLES, but desktop needs this enable).
+        _gl.Enable(GlBindings.GL_PROGRAM_POINT_SIZE);
         _gl.Clear(GlBindings.GL_COLOR_BUFFER_BIT | GlBindings.GL_DEPTH_BUFFER_BIT);
         var err = _gl.GetError();
         if (err != GlBindings.GL_NO_ERROR) log?.Invoke($"GL error after clear: 0x{err:X}");
@@ -313,6 +369,8 @@ void main() { frag = v_col; }";
         _gl.UseProgram(_program);
         if (_locViewportDepth >= 0)
             _gl.Uniform4f(_locViewportDepth, width, height, zNear, zFar);
+        // Default to 1 for everything except the explicit GL_POINTS pass.
+        if (_locPointSize >= 0) _gl.Uniform1f(_locPointSize, 1f);
 
         if (drawFill && _meshVbo != 0 && _meshIbo != 0 && _meshIndexCount > 0)
         {
@@ -337,6 +395,32 @@ void main() { frag = v_col; }";
             _gl.DrawArrays(GlBindings.GL_LINES, 0, _segVertexCount);
             err = _gl.GetError();
             if (err != GlBindings.GL_NO_ERROR) log?.Invoke($"GL error after DrawArrays (segments, {_segVertexCount}): 0x{err:X}");
+        }
+
+        // Bar2 elements (stand-alone line segments): always drawn, regardless
+        // of display mode, since they're explicit structural elements rather
+        // than face edges or feature lines.
+        if (_barVbo != 0 && _barVertexCount > 0)
+        {
+            BindAttribs(_barVbo);
+            _gl.DrawArrays(GlBindings.GL_LINES, 0, _barVertexCount);
+            err = _gl.GetError();
+            if (err != GlBindings.GL_NO_ERROR) log?.Invoke($"GL error after DrawArrays (bars, {_barVertexCount}): 0x{err:X}");
+        }
+
+        // Point1 elements: rendered as fixed-size GL_POINTS sprites, drawn
+        // last so their disks aren't overdrawn by anything else.  Also
+        // glLineWidth via the legacy fixed-function call would be redundant
+        // since lines use the standard pipeline; point size is set via the
+        // u_point_size uniform.
+        if (_pointVbo != 0 && _pointVertexCount > 0)
+        {
+            if (_locPointSize >= 0) _gl.Uniform1f(_locPointSize, 9f);
+            BindAttribs(_pointVbo);
+            _gl.DrawArrays(GlBindings.GL_POINTS, 0, _pointVertexCount);
+            err = _gl.GetError();
+            if (err != GlBindings.GL_NO_ERROR) log?.Invoke($"GL error after DrawArrays (points, {_pointVertexCount}): 0x{err:X}");
+            if (_locPointSize >= 0) _gl.Uniform1f(_locPointSize, 1f);
         }
 
         // Be a tidy guest: leave the program / vertex array unbound so the
@@ -369,6 +453,8 @@ void main() { frag = v_col; }";
         DeleteBuffer(ref _meshIbo);
         DeleteBuffer(ref _edgeVbo);
         DeleteBuffer(ref _segVbo);
+        DeleteBuffer(ref _barVbo);
+        DeleteBuffer(ref _pointVbo);
         if (_vao != 0)
         {
             uint vao = _vao;

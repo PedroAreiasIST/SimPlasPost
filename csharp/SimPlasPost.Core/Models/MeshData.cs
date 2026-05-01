@@ -2,7 +2,7 @@ namespace SimPlasPost.Core.Models;
 
 public enum ElementType
 {
-    Tri3, Quad4, Tet4, Hex8, Penta6
+    Point1, Bar2, Tri3, Quad4, Tet4, Hex8, Penta6
 }
 
 public class Element

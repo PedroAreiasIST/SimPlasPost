@@ -53,6 +53,38 @@ public static class PdfExporter
             }
         }
 
+        // Bar2 elements: stand-alone line segments, drawn slightly thicker
+        // than the silhouette/wire edges so they read as structural bars.
+        if (scene.Bars.Count > 0)
+        {
+            stream.AppendLine("1.4 w 1 j 1 J");
+            foreach (var b in scene.Bars)
+            {
+                stream.AppendLine($"{F(b.R)} {F(b.G)} {F(b.B)} RG");
+                stream.AppendLine($"{F2(b.P1[0])} {F2(scene.H - b.P1[1])} m {F2(b.P2[0])} {F2(scene.H - b.P2[1])} l S");
+            }
+        }
+
+        // Point1 elements: filled circles approximated with a 4-cubic-Bezier
+        // path (PDF has no native circle).  k = 0.5522847498 is the standard
+        // arc magic number for matching a circle with cubic Beziers.
+        if (scene.Points.Count > 0)
+        {
+            const double R = 3.0;             // circle radius in PDF user units
+            const double K = 0.5522847498 * R;
+            foreach (var p in scene.Points)
+            {
+                double cx = p.P[0], cy = scene.H - p.P[1];
+                stream.AppendLine($"{F(p.R)} {F(p.G)} {F(p.B)} rg");
+                stream.AppendLine($"{F2(cx + R)} {F2(cy)} m");
+                stream.AppendLine($"{F2(cx + R)} {F2(cy + K)} {F2(cx + K)} {F2(cy + R)} {F2(cx)} {F2(cy + R)} c");
+                stream.AppendLine($"{F2(cx - K)} {F2(cy + R)} {F2(cx - R)} {F2(cy + K)} {F2(cx - R)} {F2(cy)} c");
+                stream.AppendLine($"{F2(cx - R)} {F2(cy - K)} {F2(cx - K)} {F2(cy - R)} {F2(cx)} {F2(cy - R)} c");
+                stream.AppendLine($"{F2(cx + K)} {F2(cy - R)} {F2(cx + R)} {F2(cy - K)} {F2(cx + R)} {F2(cy)} c");
+                stream.AppendLine("h f");
+            }
+        }
+
         // Color bar with labels — labels LEFT of bar, field name RIGHT of bar
         if (!string.IsNullOrEmpty(scene.FieldName))
         {

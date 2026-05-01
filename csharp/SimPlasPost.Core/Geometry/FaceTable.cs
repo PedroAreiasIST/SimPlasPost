@@ -11,6 +11,12 @@ public static class FaceTable
 
     public static readonly Dictionary<ElementType, FaceEntry> Faces = new()
     {
+        // 0-D: a point.  Has no faces in the geometric sense; the element's
+        // own connectivity (a single node index) is treated as its visual
+        // representation by the renderer / exporter.
+        [ElementType.Point1] = new(c => new[] { c }, 0),
+        // 1-D: a bar / line segment with two endpoints.
+        [ElementType.Bar2]   = new(c => new[] { c }, 1),
         [ElementType.Tri3] = new(c => new[] { c }, 2),
         [ElementType.Quad4] = new(c => new[] { c }, 2),
         [ElementType.Tet4] = new(c => new[]
@@ -42,6 +48,9 @@ public static class FaceTable
     /// <summary>Maps Ensight element type names to internal types.</summary>
     public static readonly Dictionary<string, ElementType> EnsightTypeMap = new()
     {
+        ["point"]   = ElementType.Point1,
+        ["bar2"]    = ElementType.Bar2,
+        ["bar3"]    = ElementType.Bar2,
         ["tria3"]   = ElementType.Tri3,
         ["tria6"]   = ElementType.Tri3,
         ["quad4"]   = ElementType.Quad4,
@@ -66,6 +75,7 @@ public static class FaceTable
     /// <summary>Corner (vertex) count for Ensight types (ignoring mid-edge nodes).</summary>
     public static readonly Dictionary<string, int> CornerCount = new()
     {
+        ["point"] = 1, ["bar2"] = 2, ["bar3"] = 2,
         ["tria3"] = 3, ["tria6"] = 3, ["quad4"] = 4, ["quad8"] = 4,
         ["tetra4"] = 4, ["tetra10"] = 4, ["hexa8"] = 8, ["hexa20"] = 8,
         ["penta6"] = 6, ["penta15"] = 6,
