@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Media;
 using SimPlasPost.Core.Models;
 using SimPlasPost.Desktop.ViewModels;
 
@@ -32,6 +33,11 @@ public class MeshViewport : Panel
         // or the overlay before bubbling here.
         _gl.IsHitTestVisible = false;
         _overlay.IsHitTestVisible = false;
+        // A null Background makes a Panel transparent to hit-testing as
+        // well as to painting; with both children non-hit-testable, that
+        // would mean no control receives the pointer events at all.
+        // Brushes.Transparent paints nothing but DOES count for hit-testing.
+        Background = Brushes.Transparent;
         ClipToBounds = true;
         Focusable = true;
     }
