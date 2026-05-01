@@ -187,7 +187,95 @@ public static class DemoMeshGenerator
         GenTetBox(),
         GenHouseHexWedge(),
         GenToblerone(),
+        GenAllElementsShowcase(),
     };
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Showcase: a single mesh that contains one element of every type the
+    // viewer supports (Point1, Bar2, Tri3, Quad4, Tet4, Penta6, Hex8).
+    // The pieces are placed in distinct regions of space so each can be
+    // identified at a glance, while sharing some structural nodes (the
+    // hex top with the wedge base) to demonstrate that mixed-type meshes
+    // can be conformal.
+    // ─────────────────────────────────────────────────────────────────────
+    public static MeshData GenAllElementsShowcase()
+    {
+        var nodes = new List<double[]>();
+        var elements = new List<Element>();
+
+        int N(double x, double y, double z)
+        {
+            nodes.Add(new[] { x, y, z });
+            return nodes.Count - 1;
+        }
+
+        // Hex8 cube at the centre.
+        int h0 = N(-0.5, -0.5, 0.0), h1 = N( 0.5, -0.5, 0.0);
+        int h2 = N( 0.5,  0.5, 0.0), h3 = N(-0.5,  0.5, 0.0);
+        int h4 = N(-0.5, -0.5, 1.0), h5 = N( 0.5, -0.5, 1.0);
+        int h6 = N( 0.5,  0.5, 1.0), h7 = N(-0.5,  0.5, 1.0);
+        elements.Add(new Element { Type = ElementType.Hex8, Conn = new[] { h0, h1, h2, h3, h4, h5, h6, h7 } });
+
+        // Penta6 wedge above the hex, sharing the hex's top quad as its
+        // base.  Two new ridge nodes are introduced; the wedge's bottom-quad
+        // face has the same vertex set as the hex's top face, so boundary
+        // extraction cancels the seam.
+        int rb = N(0.0, -0.5, 1.5);
+        int rf = N(0.0,  0.5, 1.5);
+        elements.Add(new Element
+        {
+            Type = ElementType.Penta6,
+            Conn = new[] { h4, h5, rb, h7, h6, rf },
+        });
+
+        // Tet4 to the +X side, separated from the hex.
+        int t0 = N(1.6,  0.0, 0.0);
+        int t1 = N(1.0, -0.5, 0.5);
+        int t2 = N(1.0,  0.5, 0.5);
+        int t3 = N(1.0,  0.0, 1.2);
+        elements.Add(new Element { Type = ElementType.Tet4, Conn = new[] { t0, t1, t2, t3 } });
+
+        // Quad4 plate on the -X side (vertical wall).
+        int q0 = N(-1.6, -0.5, 0.0);
+        int q1 = N(-1.6,  0.5, 0.0);
+        int q2 = N(-1.6,  0.5, 1.0);
+        int q3 = N(-1.6, -0.5, 1.0);
+        elements.Add(new Element { Type = ElementType.Quad4, Conn = new[] { q0, q1, q2, q3 } });
+
+        // Tri3 plate underneath.
+        int tr0 = N( 0.0, -0.7, -0.5);
+        int tr1 = N( 0.7,  0.7, -0.5);
+        int tr2 = N(-0.7,  0.7, -0.5);
+        elements.Add(new Element { Type = ElementType.Tri3, Conn = new[] { tr0, tr1, tr2 } });
+
+        // Bar2 (a beam from one outer corner to another, crossing the scene
+        // diagonally so it's clearly visible against the volumes).
+        int b0 = N(-1.4, -1.2, 1.6);
+        int b1 = N( 1.4,  1.2, 1.6);
+        elements.Add(new Element { Type = ElementType.Bar2, Conn = new[] { b0, b1 } });
+
+        // Point1 (a marker / load point off to the side).
+        int p0 = N(0.0, 1.4, 0.6);
+        elements.Add(new Element { Type = ElementType.Point1, Conn = new[] { p0 } });
+
+        // Field: distance from the central axis plus a vertical bias.
+        var fv = new double[nodes.Count];
+        for (int i = 0; i < nodes.Count; i++)
+        {
+            double x = nodes[i][0], y = nodes[i][1], z = nodes[i][2];
+            fv[i] = Math.Sqrt(x * x + y * y) + 0.3 * z;
+        }
+
+        return new MeshData
+        {
+            Name = "Showcase (All 7 Element Types)", Dim = 3,
+            Nodes = nodes.ToArray(), Elements = elements,
+            Fields =
+            {
+                ["Field"] = new FieldData { Name = "Field", IsVector = false, ScalarValues = fv },
+            },
+        };
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // i) 2D mesh built entirely from QUAD4 elements: a half-annulus
