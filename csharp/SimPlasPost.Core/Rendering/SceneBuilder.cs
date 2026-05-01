@@ -92,26 +92,33 @@ public static class SceneBuilder
             var pts3D = pts.Select(p => new[] { p[0], p[1], p[2] }).ToArray();
             double avgZ = pts.Average(p => p[2]);
 
-            double r, g, b;
+            // Per-vertex colors so the PDF exporter can run Type 4 Gouraud
+            // shading and match the on-screen smooth interpolation.
+            var rArr = new double[face.Length];
+            var gArr = new double[face.Length];
+            var bArr = new double[face.Length];
             if (dMode == DisplayMode.Wireframe)
             {
-                r = 1; g = 1; b = 1; // plain white faces
+                for (int j = 0; j < face.Length; j++) { rArr[j] = 1; gArr[j] = 1; bArr[j] = 1; }
             }
             else if (fv != null)
             {
-                double avgF = face.Sum(ni => fv[ni]) / (double)face.Length;
-                double t = (avgF - efMin) / efSpan;
-                (r, g, b) = TurboColormap.Sample(t);
+                for (int j = 0; j < face.Length; j++)
+                {
+                    double t = (fv[face[j]] - efMin) / efSpan;
+                    var (cr, cg, cb) = TurboColormap.Sample(t);
+                    rArr[j] = cr; gArr[j] = cg; bArr[j] = cb;
+                }
             }
             else
             {
-                r = 0.75; g = 0.78; b = 0.82; // neutral gray when no field
+                for (int j = 0; j < face.Length; j++) { rArr[j] = 0.75; gArr[j] = 0.78; bArr[j] = 0.82; }
             }
 
             exportFaces.Add(new ProjectedFace
             {
                 ScreenPts = screenPts, Pts3D = pts3D,
-                R = r, G = g, B = b, Depth = avgZ,
+                R = rArr, G = gArr, B = bArr, Depth = avgZ,
             });
 
             if (dMode == DisplayMode.Wireframe || dMode == DisplayMode.Plot)
@@ -175,10 +182,14 @@ public static class SceneBuilder
             }
         }
 
-        // Lines mode: faces should be white
+        // Lines mode: faces should be white so the iso-lines and silhouette
+        // edges carry all the colour information.  Reset every vertex slot.
         if (dMode == DisplayMode.Lines)
         {
-            foreach (var f in exportFaces) { f.R = 1; f.G = 1; f.B = 1; }
+            foreach (var f in exportFaces)
+            {
+                for (int j = 0; j < f.R.Length; j++) { f.R[j] = 1; f.G[j] = 1; f.B[j] = 1; }
+            }
         }
 
         int nEdges = bfaces.Sum(f => f.Length);

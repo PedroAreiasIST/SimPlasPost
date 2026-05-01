@@ -22,17 +22,19 @@ public static class PdfExporter
         // White background
         stream.AppendLine($"1 1 1 rg 0 0 {scene.W} {scene.H} re f");
 
-        // Faces (painter's algorithm order)
-        foreach (var f in scene.Faces)
-        {
-            stream.AppendLine($"{F(f.R)} {F(f.G)} {F(f.B)} rg");
-            for (int i = 0; i < f.ScreenPts.Length; i++)
-            {
-                double px = f.ScreenPts[i][0], py = scene.H - f.ScreenPts[i][1];
-                stream.AppendLine($"{F2(px)} {F2(py)} {(i == 0 ? "m" : "l")}");
-            }
-            stream.AppendLine("h f");
-        }
+        // Faces: build a single Type 4 (free-form Gouraud-shaded triangle
+        // mesh) shading object so the PDF reader interpolates colours
+        // across each triangle just like the on-screen renderer.  Faces are
+        // already painter's-sorted; we fan-triangulate each in stream
+        // order, so later triangles overdraw earlier ones inside the
+        // shading itself.  The `sh /Sh1` operator below paints the whole
+        // mesh at this point in the content stream — anything stroked
+        // afterwards (edges, contours, bars, points, color bar, triad)
+        // sits on top.
+        var shadingBytes = BuildShadingStream(scene, out double xMin, out double xMax, out double yMin, out double yMax);
+        bool hasShading = shadingBytes.Length > 0;
+        if (hasShading)
+            stream.AppendLine("/Sh1 sh");
 
         // Visible edges
         if (scene.VisibleEdges.Count > 0)
@@ -159,7 +161,10 @@ public static class PdfExporter
         Write("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
 
         offsets.Add(pdfBytes.Position);
-        Write($"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {scene.W} {scene.H}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n");
+        // /Resources picks up /Font and (when there are filled faces)
+        // /Shading so the page's `sh /Sh1` operator can resolve.
+        string shadingResource = hasShading ? " /Shading << /Sh1 6 0 R >>" : "";
+        Write($"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {scene.W} {scene.H}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >>{shadingResource} >> >>\nendobj\n");
 
         offsets.Add(pdfBytes.Position);
         Write($"4 0 obj\n<< /Length {contentBytes.Length} >>\nstream\n");
@@ -168,6 +173,15 @@ public static class PdfExporter
 
         offsets.Add(pdfBytes.Position);
         Write("5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold /Encoding /WinAnsiEncoding >>\nendobj\n");
+
+        if (hasShading)
+        {
+            offsets.Add(pdfBytes.Position);
+            string decode = $"[{F2(xMin)} {F2(xMax)} {F2(yMin)} {F2(yMax)} 0 1 0 1 0 1]";
+            Write($"6 0 obj\n<< /ShadingType 4 /ColorSpace /DeviceRGB /BitsPerCoordinate 16 /BitsPerComponent 8 /BitsPerFlag 8 /Decode {decode} /Length {shadingBytes.Length} >>\nstream\n");
+            pdfBytes.Write(shadingBytes, 0, shadingBytes.Length);
+            Write("\nendstream\nendobj\n");
+        }
 
         long xrefOff = pdfBytes.Position;
         Write($"xref\n0 {offsets.Count + 1}\n");
@@ -226,4 +240,82 @@ public static class PdfExporter
     private static string F(double v) => v.ToString("F4", CultureInfo.InvariantCulture);
     private static string F2(double v) => v.ToString("F2", CultureInfo.InvariantCulture);
     private static string Escape(string s) => ExportHelpers.EscapePs(s);
+
+    /// <summary>
+    /// Build the binary data stream for a PDF Type 4 (free-form Gouraud-shaded
+    /// triangle mesh) shading.  Each face is fan-triangulated; for every
+    /// triangle we emit three independent vertices (flag = 0), each carrying
+    /// quantised x/y (16 bits) and r/g/b (8 bits).
+    ///
+    /// The output coordinate range is the scene's bounding rectangle in PDF
+    /// user-space (origin bottom-left), which the caller writes into the
+    /// shading dictionary's Decode array.
+    /// </summary>
+    private static byte[] BuildShadingStream(
+        ExportScene scene,
+        out double xMin, out double xMax,
+        out double yMin, out double yMax)
+    {
+        xMin = 0; xMax = scene.W;
+        yMin = 0; yMax = scene.H;
+        if (scene.Faces.Count == 0) return Array.Empty<byte>();
+
+        // Pre-count triangles for buffer sizing.
+        int triCount = 0;
+        foreach (var face in scene.Faces)
+        {
+            int n = face.ScreenPts.Length;
+            if (n >= 3) triCount += n - 2;
+        }
+        if (triCount == 0) return Array.Empty<byte>();
+
+        // 1 flag + 2 bytes x + 2 bytes y + 3 bytes rgb = 8 bytes per vertex.
+        const int VertexBytes = 8;
+        var buf = new byte[triCount * 3 * VertexBytes];
+        int p = 0;
+
+        double xSpan = xMax - xMin; if (xSpan < 1e-12) xSpan = 1;
+        double ySpan = yMax - yMin; if (ySpan < 1e-12) ySpan = 1;
+
+        void Vertex(double x, double y, double r, double g, double b)
+        {
+            // PDF y is bottom-up; our screen y is top-down.
+            double pdfY = scene.H - y;
+            ushort xq = (ushort)Math.Round(Math.Clamp((x   - xMin) / xSpan, 0, 1) * 65535);
+            ushort yq = (ushort)Math.Round(Math.Clamp((pdfY - yMin) / ySpan, 0, 1) * 65535);
+            byte rq = (byte)Math.Round(Math.Clamp(r, 0, 1) * 255);
+            byte gq = (byte)Math.Round(Math.Clamp(g, 0, 1) * 255);
+            byte bq = (byte)Math.Round(Math.Clamp(b, 0, 1) * 255);
+            buf[p++] = 0;                      // flag = independent triangle vertex
+            buf[p++] = (byte)(xq >> 8); buf[p++] = (byte)(xq & 0xFF);
+            buf[p++] = (byte)(yq >> 8); buf[p++] = (byte)(yq & 0xFF);
+            buf[p++] = rq; buf[p++] = gq; buf[p++] = bq;
+        }
+
+        foreach (var face in scene.Faces)
+        {
+            int n = face.ScreenPts.Length;
+            if (n < 3) continue;
+            // If R/G/B arrays are short (e.g. legacy data), fall back to the
+            // first entry so the stream is still well-formed.
+            int cn = face.R.Length;
+            for (int i = 1; i < n - 1; i++)
+            {
+                int i0 = 0, i1 = i, i2 = i + 1;
+                int c0 = Math.Min(i0, cn - 1);
+                int c1 = Math.Min(i1, cn - 1);
+                int c2 = Math.Min(i2, cn - 1);
+                Vertex(face.ScreenPts[i0][0], face.ScreenPts[i0][1], face.R[c0], face.G[c0], face.B[c0]);
+                Vertex(face.ScreenPts[i1][0], face.ScreenPts[i1][1], face.R[c1], face.G[c1], face.B[c1]);
+                Vertex(face.ScreenPts[i2][0], face.ScreenPts[i2][1], face.R[c2], face.G[c2], face.B[c2]);
+            }
+        }
+
+        // Trim to the actually-written length (Math.Clamp may not have
+        // affected count, but stay defensive).
+        if (p == buf.Length) return buf;
+        var trimmed = new byte[p];
+        Buffer.BlockCopy(buf, 0, trimmed, 0, p);
+        return trimmed;
+    }
 }
