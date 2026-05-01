@@ -12,6 +12,11 @@
         <Button x:Name="BtnDemo0" Content="Plate with Hole" Click="OnDemoClick" Tag="0" Classes="demo"/>
         <Button x:Name="BtnDemo1" Content="Cantilever" Click="OnDemoClick" Tag="1" Classes="demo"/>
         <Button x:Name="BtnDemo2" Content="Unit Square" Click="OnDemoClick" Tag="2" Classes="demo"/>
+        <Button x:Name="BtnDemo3" Content="Annular Quads" Click="OnDemoClick" Tag="3" Classes="demo"/>
+        <Button x:Name="BtnDemo4" Content="Mixed Tri+Quad" Click="OnDemoClick" Tag="4" Classes="demo"/>
+        <Button x:Name="BtnDemo5" Content="Tet Beam" Click="OnDemoClick" Tag="5" Classes="demo"/>
+        <Button x:Name="BtnDemo6" Content="House (Hex+Wedge)" Click="OnDemoClick" Tag="6" Classes="demo"/>
+        <Button x:Name="BtnDemo7" Content="Toblerone (Tet+Wedge)" Click="OnDemoClick" Tag="7" Classes="demo"/>
       </StackPanel>
     </Border>
 
