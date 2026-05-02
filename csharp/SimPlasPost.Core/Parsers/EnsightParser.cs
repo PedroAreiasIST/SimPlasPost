@@ -267,13 +267,30 @@ public static class EnsightParser
         // Parse .case file
         var caseData = ParseCase(fileContents[caseFile]);
 
-        // Find geo file
+        // Find geo file.  When the case file uses a transient pattern
+        // (`model: 1 foo.geo****`), expand the wildcard against the
+        // already-loaded file keys; the viewer only needs a single snapshot.
         string? geoFileName = caseData.GeoFile;
+        if (geoFileName != null && geoFileName.Contains('*'))
+        {
+            string escGeo = Regex.Escape(geoFileName);
+            string patGeo = Regex.Replace(escGeo, @"(?:\\\*)+", @"\d+");
+            var rxGeo = new Regex("^" + patGeo + "$", RegexOptions.IgnoreCase);
+            geoFileName = fileContents.Keys
+                .Where(n => rxGeo.IsMatch(n))
+                .OrderBy(n => n, StringComparer.Ordinal)
+                .FirstOrDefault();
+        }
         if (geoFileName == null || !fileContents.ContainsKey(geoFileName))
         {
+            // Last resort: any file that *looks* like a geo, including the
+            // transient `.geoNNNN` form that doesn't end in a clean `.geo`.
             geoFileName = fileContents.Keys.FirstOrDefault(n =>
-                n.EndsWith(".geo", StringComparison.OrdinalIgnoreCase) ||
-                n.EndsWith(".geom", StringComparison.OrdinalIgnoreCase));
+                    n.EndsWith(".geo", StringComparison.OrdinalIgnoreCase) ||
+                    n.EndsWith(".geom", StringComparison.OrdinalIgnoreCase))
+                ?? fileContents.Keys.FirstOrDefault(n =>
+                    Regex.IsMatch(n, @"\.geo\d+$", RegexOptions.IgnoreCase) ||
+                    Regex.IsMatch(n, @"\.geom\d+$", RegexOptions.IgnoreCase));
             if (geoFileName == null)
                 throw new InvalidDataException("Geo file not found in uploaded files");
         }
@@ -292,7 +309,13 @@ public static class EnsightParser
 
             if (fn.Contains('*'))
             {
-                var pattern = new Regex("^" + Regex.Escape(fn).Replace("\\*", @"(\d+)") + "$");
+                // Collapse any run of `*` into a single `\d+` so a four-star
+                // pattern like `foo.res****` matches `foo.res0001` cleanly
+                // instead of forcing the regex engine to backtrack across
+                // four greedy `(\d+)` groups.
+                string esc = Regex.Escape(fn);
+                string pat = Regex.Replace(esc, @"(?:\\\*)+", @"\d+");
+                var pattern = new Regex("^" + pat + "$");
                 stepFiles = fileContents.Keys
                     .Where(n => pattern.IsMatch(n))
                     .OrderBy(n => n, StringComparer.Ordinal)
