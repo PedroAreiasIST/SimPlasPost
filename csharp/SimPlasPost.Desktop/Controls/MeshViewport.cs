@@ -62,13 +62,17 @@ public class MeshViewport : Panel
         var pos = e.GetPosition(this); var cam = _vm.Camera;
         if (_panning)
         {
-            // Drag right → mesh follows right; drag down → mesh follows down.
-            // The camera target moves OPPOSITE the mouse delta in view-space
-            // (because moving the eye/target right makes a fixed mesh appear
-            // LEFT in screen, etc.).  Subtracting puts the mesh "under the
-            // cursor" — natural panning.
+            // 1:1 cursor-to-mesh panning.  The orthographic scale used by
+            // the projection is `Bounds.Height / (2*Dist)` (height-driven,
+            // see Camera.Project), so to get 1 logical pixel of cursor
+            // motion → 1 logical pixel of mesh motion the pan-speed factor
+            // must be `2*Dist / Bounds.Height` for BOTH x and y deltas.
+            //
+            // Sign: subtract the delta so the camera target moves
+            // OPPOSITE the cursor — a fixed mesh then appears to follow
+            // the cursor (drag right → mesh follows right).
             double dx = pos.X - _lastMouse.X, dy = pos.Y - _lastMouse.Y;
-            double ps = 2.0 * cam.Dist / Math.Max(Bounds.Width, Bounds.Height);
+            double ps = 2.0 * cam.Dist / Math.Max(1.0, Bounds.Height);
             var r = cam.Rot;
             cam.Tx -= (dx * r[0] - dy * r[3]) * ps;
             cam.Ty -= (dx * r[1] - dy * r[4]) * ps;
