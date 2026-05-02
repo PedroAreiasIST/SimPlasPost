@@ -111,9 +111,19 @@ public static class SceneBuilder
             // colour (the owning element's), so the shading degenerates to
             // a flat fill bounded by element edges — sharp seams between
             // adjacent elements with different values.
+            //
+            // For per-node fields, the GL/PDF rasterizers interpolate RGB
+            // linearly between vertices.  Linear RGB interpolation does NOT
+            // trace the Turbo LUT curve: a face spanning blue (t≈0.1) to
+            // yellow (t≈0.6) gets a muddy gray midpoint instead of the
+            // Turbo green at t=0.35.  We fix this by barycentrically
+            // subdividing the face so each sub-edge stays inside roughly
+            // one LUT bin, where linear RGB ≈ LUT lookup.
             var rArr = new double[face.Length];
             var gArr = new double[face.Length];
             var bArr = new double[face.Length];
+            double[]? tArr = null;
+            int subdivN = 1;
             if (effectiveMode == DisplayMode.Wireframe)
             {
                 for (int j = 0; j < face.Length; j++) { rArr[j] = 1; gArr[j] = 1; bArr[j] = 1; }
@@ -126,23 +136,48 @@ public static class SceneBuilder
             }
             else if (fv != null && !isPerElement)
             {
+                tArr = new double[face.Length];
+                double tMin = double.MaxValue, tMax = double.MinValue;
                 for (int j = 0; j < face.Length; j++)
                 {
-                    double t = (fv[face[j]] - efMin) / efSpan;
-                    var (cr, cg, cb) = TurboColormap.Sample(t);
+                    tArr[j] = (fv[face[j]] - efMin) / efSpan;
+                    if (tArr[j] < tMin) tMin = tArr[j];
+                    if (tArr[j] > tMax) tMax = tArr[j];
+                    var (cr, cg, cb) = TurboColormap.Sample(tArr[j]);
                     rArr[j] = cr; gArr[j] = cg; bArr[j] = cb;
                 }
+                // Turbo LUT has ~31 bins (Δt ≈ 1/30).  Pick N so each
+                // sub-edge spans at most one bin; cap at 8 to keep the
+                // triangle count bounded on faces that straddle the full
+                // range.
+                subdivN = (int)Math.Clamp(Math.Ceiling((tMax - tMin) * 30.0), 1, 8);
             }
             else
             {
                 for (int j = 0; j < face.Length; j++) { rArr[j] = 0.75; gArr[j] = 0.78; bArr[j] = 0.82; }
             }
 
-            exportFaces.Add(new ProjectedFace
+            if (subdivN > 1 && tArr != null)
             {
-                ScreenPts = screenPts, Pts3D = pts3D,
-                R = rArr, G = gArr, B = bArr, Depth = avgZ,
-            });
+                // Fan-triangulate and emit refined sub-triangles.  The
+                // outer wireframe edges below still come from the original
+                // polygon outline, so the user sees no extra interior lines.
+                for (int k = 1; k < face.Length - 1; k++)
+                {
+                    EmitRefinedTriangle(
+                        pts[0], pts[k], pts[k + 1],
+                        tArr[0], tArr[k], tArr[k + 1],
+                        subdivN, avgZ, exportFaces);
+                }
+            }
+            else
+            {
+                exportFaces.Add(new ProjectedFace
+                {
+                    ScreenPts = screenPts, Pts3D = pts3D,
+                    R = rArr, G = gArr, B = bArr, Depth = avgZ,
+                });
+            }
 
             if (effectiveMode == DisplayMode.Wireframe || effectiveMode == DisplayMode.Plot)
             {
@@ -267,5 +302,79 @@ public static class SceneBuilder
             Lp = lp, FieldName = displayFieldName, FMin = efMin, FMax = efMax,
             W = w, H = h, Mode = dMode, Rotation = camParams.Rot,
         };
+    }
+
+    /// <summary>
+    /// Subdivide a triangle (p0, p1, p2) with per-vertex colormap parameters
+    /// (t0, t1, t2) into N×N barycentric sub-triangles, sampling the Turbo
+    /// LUT at every sub-vertex.  Each sub-triangle is emitted as its own
+    /// <see cref="ProjectedFace"/>; depth is inherited from the parent so
+    /// painter's-algorithm sorting remains stable across the cluster.
+    /// </summary>
+    private static void EmitRefinedTriangle(
+        double[] p0, double[] p1, double[] p2,
+        double t0, double t1, double t2,
+        int N, double depth, List<ProjectedFace> output)
+    {
+        int rows = N + 1;
+        var pos = new double[rows * rows][];
+        var rgb = new (double R, double G, double B)[rows * rows];
+        int Idx(int i, int j) => i * rows + j;
+
+        for (int i = 0; i <= N; i++)
+        {
+            for (int j = 0; j <= N - i; j++)
+            {
+                double a = 1.0 - (i + j) / (double)N;
+                double b = i / (double)N;
+                double c = j / (double)N;
+                int idx = Idx(i, j);
+                pos[idx] = new[]
+                {
+                    a * p0[0] + b * p1[0] + c * p2[0],
+                    a * p0[1] + b * p1[1] + c * p2[1],
+                    a * p0[2] + b * p1[2] + c * p2[2],
+                };
+                double tv = a * t0 + b * t1 + c * t2;
+                rgb[idx] = TurboColormap.Sample(tv);
+            }
+        }
+
+        void Emit(int ia, int ib, int ic)
+        {
+            var pa = pos[ia]; var pb = pos[ib]; var pc = pos[ic];
+            var (rA, gA, bA) = rgb[ia];
+            var (rB, gB, bB) = rgb[ib];
+            var (rC, gC, bC) = rgb[ic];
+            output.Add(new ProjectedFace
+            {
+                ScreenPts = new[]
+                {
+                    new[] { pa[0], pa[1] },
+                    new[] { pb[0], pb[1] },
+                    new[] { pc[0], pc[1] },
+                },
+                Pts3D = new[]
+                {
+                    new[] { pa[0], pa[1], pa[2] },
+                    new[] { pb[0], pb[1], pb[2] },
+                    new[] { pc[0], pc[1], pc[2] },
+                },
+                R = new[] { rA, rB, rC },
+                G = new[] { gA, gB, gC },
+                B = new[] { bA, bB, bC },
+                Depth = depth,
+            });
+        }
+
+        for (int i = 0; i < N; i++)
+        {
+            for (int j = 0; j < N - i; j++)
+            {
+                Emit(Idx(i, j), Idx(i + 1, j), Idx(i, j + 1));
+                if (i + j < N - 1)
+                    Emit(Idx(i + 1, j), Idx(i + 1, j + 1), Idx(i, j + 1));
+            }
+        }
     }
 }
