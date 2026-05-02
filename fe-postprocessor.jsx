@@ -283,9 +283,10 @@ function parseEnsightVector(text, nNodes) {
 }
 
 // ─── Demo meshes ───
-function genPlateHole() {
+function genPlateHole(opts={}) {
+  const {nr=24, nth=64, no=24, name="Plate with Hole (2D Quads)"} = opts;
   const nodes=[],elements=[];
-  const R=0.3,W=1,nr=24,nth=64,no=24;
+  const R=0.3,W=1;
   for (let j=0;j<=nth;j++) { const th=(j/nth)*Math.PI*0.5;
     for (let i=0;i<=nr+no;i++) { let r=i<=nr?R+(W*0.5-R)*(i/nr):W*0.5+(W-W*0.5)*((i-nr)/no);
       nodes.push([r*Math.cos(th),r*Math.sin(th),0]); }}
@@ -298,27 +299,29 @@ function genPlateHole() {
   for (let e=0;e<oE;e++) { const cn=elements[e].conn.map(n=>mx[n]); elements.push({type:"quad4",conn:[cn[1],cn[0],cn[3],cn[2]]}); }
   const fv=nodes.map(([x,y])=>{const r=Math.sqrt(x*x+y*y),th=Math.atan2(y,x); return Math.max(0.2,Math.min(3.2,1+0.5*(0.09)/(r*r)*(1+Math.cos(2*th))));});
   const dv=nodes.map(([x,y])=>{const f=Math.max(0,1-Math.sqrt(x*x+y*y))*0.05; return [x*f*0.5,y*f,0];});
-  return {name:"Plate with Hole (2D Quads)",dim:2,nodes,elements,fields:{"Von Mises":{type:"scalar",values:fv},Displacement:{type:"vector",values:dv}}};
+  return {name,dim:2,nodes,elements,fields:{"Von Mises":{type:"scalar",values:fv},Displacement:{type:"vector",values:dv}}};
 }
-function gen3DBeam() {
-  const nx=48,ny=10,nz=10,Lx=4,Ly=.5,Lz=.5,nodes=[],elements=[];
+function gen3DBeam(opts={}) {
+  const {nx=48, ny=10, nz=10, name="Cantilever (3D Hex8)"} = opts;
+  const Lx=4,Ly=.5,Lz=.5,nodes=[],elements=[];
   for(let k=0;k<=nz;k++)for(let j=0;j<=ny;j++)for(let i=0;i<=nx;i++) nodes.push([(i/nx)*Lx,(j/ny)*Ly-Ly/2,(k/nz)*Lz-Lz/2]);
   const id=(i,j,k)=>k*(ny+1)*(nx+1)+j*(nx+1)+i;
   for(let k=0;k<nz;k++)for(let j=0;j<ny;j++)for(let i=0;i<nx;i++)
     elements.push({type:"hex8",conn:[id(i,j,k),id(i+1,j,k),id(i+1,j+1,k),id(i,j+1,k),id(i,j,k+1),id(i+1,j,k+1),id(i+1,j+1,k+1),id(i,j+1,k+1)]});
-  return {name:"Cantilever (3D Hex8)",dim:3,nodes,elements,fields:{
+  return {name,dim:3,nodes,elements,fields:{
     "Bending Stress":{type:"scalar",values:nodes.map(([x,y])=>Math.max(0,y*(Lx-x)*4+.5))},
     Displacement:{type:"vector",values:nodes.map(([x])=>{const t=x/Lx;return[0,-.15*t*t*(3-2*t),0];})}}};
 }
-function gen2DTri() {
-  const n=40,nodes=[],elements=[];
+function gen2DTri(opts={}) {
+  const {n=40, name="Unit Square (2D Tri3)"} = opts;
+  const nodes=[],elements=[];
   for(let j=0;j<=n;j++)for(let i=0;i<=n;i++) nodes.push([i/n,j/n,0]);
   for(let j=0;j<n;j++)for(let i=0;i<n;i++){const b=j*(n+1)+i;
     elements.push({type:"tri3",conn:[b,b+1,(j+1)*(n+1)+i+1]});
     elements.push({type:"tri3",conn:[b,(j+1)*(n+1)+i+1,(j+1)*(n+1)+i]});}
   const fv=nodes.map(([x,y])=>Math.sin(Math.PI*x)*Math.sin(Math.PI*y));
   const dv=nodes.map(([x,y])=>[.03*Math.sin(Math.PI*x)*Math.sin(Math.PI*y),.05*Math.sin(Math.PI*x)*Math.sin(Math.PI*y),0]);
-  return {name:"Unit Square (2D Tri3)",dim:2,nodes,elements,fields:{Temperature:{type:"scalar",values:fv},Displacement:{type:"vector",values:dv}}};
+  return {name,dim:2,nodes,elements,fields:{Temperature:{type:"scalar",values:fv},Displacement:{type:"vector",values:dv}}};
 }
 
 // ─── Line Thickness Presets ───
@@ -932,7 +935,17 @@ export default function FEPostprocessor() {
     camRef.current = {...v.cam};
   },[]);
 
-  const demos=useMemo(()=>[genPlateHole(),gen3DBeam(),gen2DTri()],[]);
+  const demos=useMemo(()=>[
+    {name:"Plate with Hole (2D Quads)",            make:()=>genPlateHole()},
+    {name:"Cantilever (3D Hex8)",                  make:()=>gen3DBeam()},
+    {name:"Unit Square (2D Tri3)",                 make:()=>gen2DTri()},
+    {name:"Plate with Hole — Fine (2D Quads)",     make:()=>genPlateHole({nr:48, nth:128, no:48, name:"Plate with Hole — Fine (2D Quads)"})},
+    {name:"Plate with Hole — Ultra-Fine (2D Quads)", make:()=>genPlateHole({nr:96, nth:256, no:96, name:"Plate with Hole — Ultra-Fine (2D Quads)"})},
+    {name:"Cantilever — Fine (3D Hex8)",           make:()=>gen3DBeam({nx:96, ny:20, nz:20, name:"Cantilever — Fine (3D Hex8)"})},
+    {name:"Cantilever — Ultra-Fine (3D Hex8)",     make:()=>gen3DBeam({nx:160, ny:32, nz:32, name:"Cantilever — Ultra-Fine (3D Hex8)"})},
+    {name:"Unit Square — Fine (2D Tri3)",          make:()=>gen2DTri({n:80, name:"Unit Square — Fine (2D Tri3)"})},
+    {name:"Unit Square — Ultra-Fine (2D Tri3)",    make:()=>gen2DTri({n:160, name:"Unit Square — Ultra-Fine (2D Tri3)"})},
+  ],[]);
 
   const loadMesh=useCallback((d)=>{
     setMeshData(d);
@@ -943,7 +956,7 @@ export default function FEPostprocessor() {
     setInfo(`${d.name} — ${d.nodes.length} nodes, ${d.elements.length} elems`);
   },[]);
 
-  useEffect(()=>{if(activeDemo>=0)loadMesh(demos[activeDemo]);},[activeDemo,demos,loadMesh]);
+  useEffect(()=>{if(activeDemo>=0)loadMesh(demos[activeDemo].make());},[activeDemo,demos,loadMesh]);
 
   // Boundary-face extraction and dimensionality only depend on mesh topology, so they can
   // be cached across unrelated state changes (active field, display mode, slider moves...).
