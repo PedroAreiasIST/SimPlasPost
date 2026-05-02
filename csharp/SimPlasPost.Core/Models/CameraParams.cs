@@ -64,7 +64,16 @@ public class CameraParams
 
     public static CameraParams For3D() => new()
     {
-        Rot = RotFromAngles(0.6, 0.8), Dist = 2.0,
+        // True isometric projection: viewing direction is (1,1,1) so each of
+        // the X / Y / Z axes is foreshortened equally.  This is the most
+        // information-dense default for an arbitrary 3D mesh — it shows three
+        // faces of any axis-aligned box, distinguishes the three principal
+        // directions, and avoids any axis hiding behind another (which would
+        // happen with a top-down or front-on view).  A bit more distance
+        // than the 2D default leaves padding for the active scalar field's
+        // colour bar on the right.
+        Rot  = RotFromAngles(Math.PI / 4.0, Math.Acos(1.0 / Math.Sqrt(3.0))),
+        Dist = 2.6,
     };
 
     public static CameraParams FromAngles(double theta, double phi, double dist) => new()
