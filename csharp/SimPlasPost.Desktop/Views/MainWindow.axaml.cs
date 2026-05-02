@@ -448,7 +448,12 @@ public partial class MainWindow : Window
             });
             if (file == null) return;
             await using var stream = await file.OpenWriteAsync();
-            var bytes = _vm.ExportPdf();
+            // WYSIWYG: PDF page sized to the current viewport so the camera,
+            // aspect ratio, and overlay placement on the page match exactly
+            // what's on screen.
+            int w = Math.Max(100, (int)Viewport.Bounds.Width);
+            int h = Math.Max(100, (int)Viewport.Bounds.Height);
+            var bytes = _vm.ExportPdf(w, h);
             await stream.WriteAsync(bytes);
         }
         catch (Exception ex)
