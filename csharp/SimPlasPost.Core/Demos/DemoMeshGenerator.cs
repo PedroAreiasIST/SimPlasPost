@@ -177,19 +177,25 @@ public static class DemoMeshGenerator
         };
     }
 
-    public static MeshData[] AllDemos() => new[]
-    {
-        GenPlateHole(),
-        Gen3DBeam(),
-        Gen2DTri(),
-        GenAnnulusQuads(),
-        GenMixedTriQuad(),
-        GenTetBox(),
-        GenHouseHexWedge(),
-        GenToblerone(),
-        GenAllElementsShowcase(),
-        GenPerElementBeam(),
-    };
+    public static MeshData[] AllDemos() =>
+        new[]
+        {
+            GenPlateHole(),
+            Gen3DBeam(),
+            Gen2DTri(),
+            GenAnnulusQuads(),
+            GenMixedTriQuad(),
+            GenTetBox(),
+            GenHouseHexWedge(),
+            GenToblerone(),
+            GenAllElementsShowcase(),
+            GenPerElementBeam(),
+        }
+        // Append the 10 classical-surface "high-end" demos so they appear
+        // at the end of the Examples dropdown.  See HighEndMeshGenerator
+        // and Demos/LICENSES.md for provenance.
+        .Concat(HighEndMeshGenerator.All())
+        .ToArray();
 
     // ─────────────────────────────────────────────────────────────────────
     // Demo of a per-element (real-valued) scalar field: a hex-meshed beam
