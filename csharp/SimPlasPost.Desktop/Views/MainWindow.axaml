@@ -4,20 +4,12 @@
         x:Class="SimPlasPost.Desktop.Views.MainWindow"
         Title="SIMPLAS Viewer" Width="1100" Height="700">
   <DockPanel>
-    <!-- Top bar: demo buttons -->
+    <!-- Top bar: examples dropdown -->
     <Border DockPanel.Dock="Top" Background="#C0C0C0" BorderBrush="#808080" BorderThickness="0,0,0,1" Padding="8,5">
-      <StackPanel Orientation="Horizontal" Spacing="6">
+      <StackPanel Orientation="Horizontal" Spacing="8">
         <TextBlock Text="SIMPLAS Viewer" FontWeight="Bold" FontSize="18" VerticalAlignment="Center" Margin="0,0,12,0"/>
-        <Button x:Name="BtnDemo0" Content="Plate with Hole" Click="OnDemoClick" Tag="0"/>
-        <Button x:Name="BtnDemo1" Content="Cantilever" Click="OnDemoClick" Tag="1"/>
-        <Button x:Name="BtnDemo2" Content="Unit Square" Click="OnDemoClick" Tag="2"/>
-        <Button x:Name="BtnDemo3" Content="Annular Quads" Click="OnDemoClick" Tag="3"/>
-        <Button x:Name="BtnDemo4" Content="Mixed Tri+Quad" Click="OnDemoClick" Tag="4"/>
-        <Button x:Name="BtnDemo5" Content="Tet Beam" Click="OnDemoClick" Tag="5"/>
-        <Button x:Name="BtnDemo6" Content="House (Hex+Wedge)" Click="OnDemoClick" Tag="6"/>
-        <Button x:Name="BtnDemo7" Content="Toblerone (Tet+Wedge)" Click="OnDemoClick" Tag="7"/>
-        <Button x:Name="BtnDemo8" Content="All Element Types" Click="OnDemoClick" Tag="8"/>
-        <Button x:Name="BtnDemo9" Content="Per-Element Field" Click="OnDemoClick" Tag="9"/>
+        <TextBlock Text="Examples:" VerticalAlignment="Center"/>
+        <ComboBox x:Name="CbDemo" MinWidth="260" SelectionChanged="OnDemoSelectionChanged"/>
       </StackPanel>
     </Border>
 
