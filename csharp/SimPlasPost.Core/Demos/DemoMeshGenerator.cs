@@ -180,21 +180,25 @@ public static class DemoMeshGenerator
     public static MeshData[] AllDemos() =>
         new[]
         {
+            // Two 2D FE demos (one quad, one mixed Tri+Quad).
             GenPlateHole(),
-            Gen3DBeam(),
-            Gen2DTri(),
-            GenAnnulusQuads(),
             GenMixedTriQuad(),
+            // 3D FE demos that each exercise a distinct element-type
+            // combination — cantilever Hex8, Tet beam, hex+wedge house,
+            // tet+wedge toblerone, all-element-types showcase, and the
+            // per-element scalar-field demo.
+            Gen3DBeam(),
             GenTetBox(),
             GenHouseHexWedge(),
             GenToblerone(),
             GenAllElementsShowcase(),
             GenPerElementBeam(),
         }
-        // Append the 10 classical-surface "high-end" demos so they appear
-        // at the end of the Examples dropdown.  See HighEndMeshGenerator
-        // and Demos/LICENSES.md for provenance.
-        .Concat(HighEndMeshGenerator.All())
+        // Append the ten classical reference meshes (Bunny, Buddha,
+        // Armadillo, Nefertiti, Rocker Arm, Fandisk, Cheburashka, Spot,
+        // Utah Teapot, Suzanne).  See Demos/LICENSES.md for provenance
+        // and per-mesh attributions.
+        .Concat(EmbeddedMeshLoader.All())
         .ToArray();
 
     // ─────────────────────────────────────────────────────────────────────

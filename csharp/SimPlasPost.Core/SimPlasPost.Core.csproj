@@ -6,4 +6,10 @@
     <RootNamespace>SimPlasPost.Core</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Classical reference meshes from Alec Jacobson's common-3d-test-models
+         repo (Stanford, Keenan Crane, Newell, etc.).  See
+         Demos/LICENSES.md for per-mesh provenance and licensing. -->
+    <EmbeddedResource Include="Demos/Embedded/*.obj.gz" />
+  </ItemGroup>
 </Project>
