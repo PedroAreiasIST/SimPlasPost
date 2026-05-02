@@ -64,7 +64,8 @@ public partial class MainWindow : Window
             return;
         }
         // Defer until the viewport has been laid out at least once.
-        EventHandler<EventArgs>? handler = null;
+        // Avalonia's LayoutUpdated is a plain non-generic EventHandler.
+        EventHandler? handler = null;
         handler = (_, _) =>
         {
             if (Viewport.Bounds.Width > 1 && Viewport.Bounds.Height > 1)
