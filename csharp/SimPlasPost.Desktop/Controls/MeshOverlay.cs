@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using SimPlasPost.Core.Colormap;
 using SimPlasPost.Core.Models;
+using SimPlasPost.Core.Rendering;
 using SimPlasPost.Desktop.ViewModels;
 
 namespace SimPlasPost.Desktop.Controls;
@@ -44,12 +45,129 @@ public class MeshOverlay : Control
 
         if (!string.IsNullOrEmpty(_vm.ActiveField) && _vm.DisplayMode_ != DisplayMode.Wireframe)
             DrawColorBar(context, bounds);
+        // Contour labels are drawn after the GL surface but BEFORE the
+        // axis triad / info text, so the latter always stay legible at
+        // the corners regardless of where iso-lines cluster.
+        DrawContourLabels(context, bounds);
         DrawTriad(context, bounds);
         if (!string.IsNullOrEmpty(_vm.Info))
         {
             var text = new FormattedText(_vm.Info, System.Globalization.CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight, SciBold, 13, Brushes.Gray);
             context.DrawText(text, new Point(10, 10));
+        }
+    }
+
+    /// <summary>
+    /// Place contour-line labels using a per-frame algorithm:
+    ///
+    ///   1. Pull world-space candidates from the view-model (built once at
+    ///      RebuildGeometry time, one per polyline).
+    ///   2. Project each anchor — and a nearby tangent point — onto screen
+    ///      space at the live camera.
+    ///   3. Reject candidates whose tangent is nearly perpendicular to the
+    ///      view (the iso-line is edge-on, so the label would foreshorten
+    ///      to a line).
+    ///   4. Derive the screen rotation from the projected tangent and flip
+    ///      it if it would render the text upside-down.
+    ///   5. Sort the survivors by source polyline arc length descending so
+    ///      long, prominent iso-lines win the placement race.
+    ///   6. Greedy non-overlap: keep a label only if its conservative
+    ///      axis-aligned bounding box (radius = √(w² + h²) / 2 around the
+    ///      anchor) doesn't intersect any already-placed label.
+    ///   7. Draw a small white background mask under each kept label so the
+    ///      iso-line crossing under the text reads as broken, then draw
+    ///      the rotated text on top.
+    /// </summary>
+    private void DrawContourLabels(DrawingContext ctx, Rect bounds)
+    {
+        if (_vm == null) return;
+        if (!_vm.ShowContourLabels || _vm.DisplayMode_ != DisplayMode.Lines) return;
+        var labels = _vm.ContourLabelsWorld;
+        if (labels.Count == 0) return;
+        if (string.IsNullOrEmpty(_vm.ActiveField)) return;
+
+        int w = (int)Math.Max(1, bounds.Width);
+        int h = (int)Math.Max(1, bounds.Height);
+        var cam = Camera.Build(_vm.Camera);
+        double orthoHH = _vm.Camera.Dist;
+
+        // Sort longest-first so big iso-lines preempt smaller ones in case
+        // of overlap; ToList materialises so we don't re-enumerate the
+        // shared VM list while iterating.
+        var sorted = labels.OrderByDescending(l => l.Length).ToList();
+
+        const double textSize = 11;
+        var bgBrush = new SolidColorBrush(Color.FromArgb(220, 255, 255, 255));
+        var fgBrush = new SolidColorBrush(Color.FromRgb(40, 40, 40));
+
+        // We collect bounding rectangles of placed labels and skip any new
+        // one whose axis-aligned bbox intersects any of them.  Margin
+        // (in pixels) keeps adjacent labels from kissing.
+        const double Margin = 6;
+        var placedBoxes = new List<Rect>();
+
+        foreach (var label in sorted)
+        {
+            // Project the anchor.
+            var center = Camera.Project(label.Pos, cam, orthoHH, w, h);
+            double cx = center[0], cy = center[1];
+
+            // Cull off-screen anchors (with a small inset).
+            if (cx < 16 || cx > w - 16 || cy < 16 || cy > h - 16) continue;
+
+            // Project an offset along the world tangent so we can read off
+            // the screen rotation.  Use a small but non-trivial offset so
+            // the projected delta stays well-behaved on near-edge-on lines.
+            const double tEps = 0.05;
+            var tipWorld = new[]
+            {
+                label.Pos[0] + label.TangentDir[0] * tEps,
+                label.Pos[1] + label.TangentDir[1] * tEps,
+                label.Pos[2] + label.TangentDir[2] * tEps,
+            };
+            var tip = Camera.Project(tipWorld, cam, orthoHH, w, h);
+            double dx = tip[0] - cx, dy = tip[1] - cy;
+            double dlen2 = dx * dx + dy * dy;
+            if (dlen2 < 4.0)
+            {
+                // Tangent is nearly parallel to the view direction, so the
+                // iso-line projects almost to a point — skip the label.
+                continue;
+            }
+            double angle = Math.Atan2(dy, dx);
+            // Keep text right-side-up: flip orientations beyond ±90°.
+            if (angle > Math.PI / 2) angle -= Math.PI;
+            else if (angle < -Math.PI / 2) angle += Math.PI;
+
+            var formatted = new FormattedText(label.Text,
+                System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                SciBold, textSize, fgBrush);
+            double textW = formatted.Width + Margin;
+            double textH = formatted.Height + 2;
+
+            // Conservative AABB: rotated label fits inside a circle of
+            // radius √(w² + h²)/2 around the anchor — using that as the
+            // half-extent of an AABB gives correct overlap rejection
+            // independent of the rotation angle.
+            double diag = Math.Sqrt(textW * textW + textH * textH) * 0.5;
+            var aabb = new Rect(cx - diag, cy - diag, diag * 2, diag * 2);
+            bool overlap = false;
+            foreach (var p in placedBoxes)
+            {
+                if (aabb.Intersects(p)) { overlap = true; break; }
+            }
+            if (overlap) continue;
+            placedBoxes.Add(aabb);
+
+            using (ctx.PushTransform(Matrix.CreateTranslation(cx, cy)))
+            using (ctx.PushTransform(Matrix.CreateRotation(angle)))
+            {
+                ctx.FillRectangle(bgBrush,
+                    new Rect(-textW / 2, -textH / 2, textW, textH));
+                ctx.DrawText(formatted,
+                    new Point(-formatted.Width / 2, -formatted.Height / 2));
+            }
         }
     }
 

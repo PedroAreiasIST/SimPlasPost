@@ -82,14 +82,20 @@ public static class ContourGenerator
         return segs;
     }
 
-    /// <summary>
-    /// Chain segments into polylines and apply Chaikin subdivision for smoothing.
-    /// </summary>
-    public static List<ContourSegment> Smooth(List<ContourSegment> segs, int nSubdiv)
-    {
-        if (segs.Count == 0) return segs;
+    /// <summary>One smoothed iso-line: a polyline at a single level.</summary>
+    public record ContourPolyline(double Level, List<double[]> Points);
 
-        // Group by level
+    /// <summary>
+    /// Chain segments into polylines and apply Chaikin subdivision for
+    /// smoothing.  Returns one polyline per connected component, grouped
+    /// per level.  Used by the contour-label placer (which needs to know
+    /// polyline length and tangent direction at the midpoint).
+    /// </summary>
+    public static List<ContourPolyline> SmoothPolylines(List<ContourSegment> segs, int nSubdiv)
+    {
+        var result = new List<ContourPolyline>();
+        if (segs.Count == 0) return result;
+
         var byLevel = new Dictionary<string, List<ContourSegment>>();
         foreach (var s in segs)
         {
@@ -99,12 +105,10 @@ public static class ContourGenerator
             byLevel[k].Add(s);
         }
 
-        var result = new List<ContourSegment>();
         foreach (var (_, lvSegs) in byLevel)
         {
             double lv = lvSegs[0].Level;
 
-            // Build adjacency
             var adj = new Dictionary<string, List<(int segIdx, int endIdx)>>();
             for (int i = 0; i < lvSegs.Count; i++)
             {
@@ -116,7 +120,6 @@ public static class ContourGenerator
                 adj[kb].Add((i, 1));
             }
 
-            // Chain into polylines
             var used = new HashSet<int>();
             for (int si = 0; si < lvSegs.Count; si++)
             {
@@ -124,7 +127,6 @@ public static class ContourGenerator
                 used.Add(si);
                 var chain = new List<double[]> { lvSegs[si].A, lvSegs[si].B };
 
-                // Extend forward
                 for (int safe = 0; safe < 100000; safe++)
                 {
                     string k = HashPt(chain[^1]);
@@ -141,7 +143,6 @@ public static class ContourGenerator
                     if (!found) break;
                 }
 
-                // Extend backward
                 for (int safe = 0; safe < 100000; safe++)
                 {
                     string k = HashPt(chain[0]);
@@ -158,7 +159,6 @@ public static class ContourGenerator
                     if (!found) break;
                 }
 
-                // Chaikin subdivision
                 var pts = chain;
                 for (int iter = 0; iter < nSubdiv; iter++)
                 {
@@ -174,13 +174,26 @@ public static class ContourGenerator
                     pts = np;
                 }
 
-                // Convert polyline back to segments
-                var defaultPerp = new[] { 0.0, 0.0, 1.0 };
-                for (int i = 0; i < pts.Count - 1; i++)
-                    result.Add(new ContourSegment(pts[i], pts[i + 1], lv, defaultPerp));
+                result.Add(new ContourPolyline(lv, pts));
             }
         }
 
+        return result;
+    }
+
+    /// <summary>
+    /// Convenience wrapper: smooth + emit each polyline back as consecutive
+    /// segments, matching the original Smooth contract.
+    /// </summary>
+    public static List<ContourSegment> Smooth(List<ContourSegment> segs, int nSubdiv)
+    {
+        var perp = new[] { 0.0, 0.0, 1.0 };
+        var result = new List<ContourSegment>();
+        foreach (var pl in SmoothPolylines(segs, nSubdiv))
+        {
+            for (int i = 0; i < pl.Points.Count - 1; i++)
+                result.Add(new ContourSegment(pl.Points[i], pl.Points[i + 1], pl.Level, perp));
+        }
         return result;
     }
 

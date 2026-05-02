@@ -41,6 +41,7 @@
           <TextBlock x:Name="TxtContourN" Classes="hint"/>
           <Slider x:Name="SlContourN" Minimum="3" Maximum="30" Value="10" IsSnapToTickEnabled="True" TickFrequency="1"
                   ValueChanged="OnContourNChanged"/>
+          <CheckBox x:Name="CbContourLabels" Content="Labels" Click="OnContourLabelsChanged"/>
         </StackPanel>
 
         <!-- Time Step -->
