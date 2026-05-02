@@ -197,9 +197,15 @@ public class MeshGlSurface : OpenGlControlBase
         float pad = 0.05f * (zMax - zMin);
         zMin -= pad; zMax += pad;
 
-        if (trace) Diag.Log($"  RenderFrame fb={fb} zMin={zMin} zMax={zMax} drawFill={_cachedMode != DisplayMode.Wireframe}");
+        // Always draw the filled mesh.  In Wireframe mode the per-vertex
+        // colors are pre-set to white in RebuildGeometry, so the fill is
+        // invisible against the white background — but it still writes to
+        // the depth buffer and occludes back-facing edges.  Skipping the
+        // fill in Wireframe mode (the previous behaviour) made the model
+        // appear see-through, with hidden edges leaking forward.
+        if (trace) Diag.Log($"  RenderFrame fb={fb} zMin={zMin} zMax={zMax}");
         _renderer.RenderFrame((uint)fb, w, h, zMin, zMax,
-            drawFill: _cachedMode != DisplayMode.Wireframe,
+            drawFill: true,
             log: trace ? Diag.Log : null);
         if (trace) Diag.Log("  done");
         _frameCount++;
