@@ -9,11 +9,17 @@
              accents.  Square corners across all common controls.  The
              FluentTheme handles the actual control templates; we only
              override the surface properties that read cleanly through
-             the template (Background, BorderBrush, CornerRadius, Padding). -->
+             the template (Background, BorderBrush, CornerRadius, Padding).
+             All GUI text is bold, sized ~25% above the previous defaults. -->
         <Style Selector="Window">
             <Setter Property="Background" Value="#C0C0C0"/>
             <Setter Property="FontFamily" Value="Tahoma, MS Sans Serif, Segoe UI, sans-serif"/>
-            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+
+        <Style Selector="TextBlock">
+            <Setter Property="FontWeight" Value="Bold"/>
         </Style>
 
         <Style Selector="Button">
@@ -24,6 +30,8 @@
             <Setter Property="CornerRadius" Value="0"/>
             <Setter Property="Padding" Value="8,3"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="14"/>
         </Style>
 
         <Style Selector="TextBox">
@@ -33,6 +41,8 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="0"/>
             <Setter Property="Padding" Value="3,2"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="14"/>
         </Style>
 
         <Style Selector="ComboBox">
@@ -42,25 +52,32 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="0"/>
             <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="14"/>
         </Style>
 
         <Style Selector="CheckBox">
             <Setter Property="Foreground" Value="#000000"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="14"/>
         </Style>
         <Style Selector="RadioButton">
             <Setter Property="Foreground" Value="#000000"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="14"/>
         </Style>
 
-        <!-- Sidebar section header: navy bold, used in MainWindow.axaml. -->
+        <!-- Sidebar section header: navy bold. -->
         <Style Selector="TextBlock.section">
             <Setter Property="Foreground" Value="#000080"/>
             <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontSize" Value="14"/>
         </Style>
 
         <Style Selector="TextBlock.hint">
             <Setter Property="Foreground" Value="#404040"/>
-            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="13"/>
         </Style>
     </Application.Styles>
 </Application>

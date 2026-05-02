@@ -80,10 +80,24 @@ public class MeshViewport : Panel
         }
         else
         {
-            double w = Bounds.Width, h = Bounds.Height, dim = Math.Min(w, h);
-            cam.Rot = CameraParams.Mul(CameraParams.ArcballDelta(
-                (2 * _lastMouse.X - w) / dim, -(2 * _lastMouse.Y - h) / dim,
-                (2 * pos.X - w) / dim, -(2 * pos.Y - h) / dim), cam.Rot);
+            // Cursor-following rotation: the same 1:1 metric as pan.  At the
+            // camera distance, a horizontal cursor delta of dx pixels rotates
+            // the object so a surface point at distance Dist from the
+            // rotation axis moves dx pixels in screen space — i.e., it
+            // tracks the cursor like the panned object does.  The orthographic
+            // scale used in projection is height-driven (s = h/(2·Dist)),
+            // which gives θ ≈ 2·dx / h for the matching arc length.
+            //
+            // Drag right → object rotates around the camera-Up axis so its
+            // right side comes toward the viewer.  Drag down → object tips
+            // forward around the camera-Right axis so its top comes toward
+            // the viewer.  Both axes are screen-frame, so the delta matrix
+            // composes via premultiplication on cam.Rot.
+            double dx = pos.X - _lastMouse.X, dy = pos.Y - _lastMouse.Y;
+            double k = 2.0 / Math.Max(1.0, Bounds.Height);
+            var ry = CameraParams.RotAxis(0, 1, 0,  dx * k);
+            var rx = CameraParams.RotAxis(1, 0, 0, -dy * k);
+            cam.Rot = CameraParams.Mul(CameraParams.Mul(ry, rx), cam.Rot);
         }
         _lastMouse = pos;
         _vm.InvalidateScene();
