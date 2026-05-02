@@ -87,6 +87,46 @@ public static class PdfExporter
             }
         }
 
+        // Contour value labels: white background mask + rotated text on top.
+        // The placer hands us positions in screen-space (y growing down);
+        // PDF user-space has y growing up, so we flip y via (scene.H - cy)
+        // and negate the rotation angle so a screen-frame rotation by +θ
+        // produces the same VISUAL rotation in PDF's flipped frame.
+        if (scene.ContourLabels.Count > 0)
+        {
+            const double labelFontSize = 11;
+            // Width estimate must match ContourLabelPlacer (avgCharWidth=0.55).
+            const double avgCharW = labelFontSize * 0.55;
+            const double margin = 6;
+            double textH = labelFontSize * 1.2 + 2;
+            foreach (var lbl in scene.ContourLabels)
+            {
+                double cx = lbl.X;
+                double cy = scene.H - lbl.Y;
+                // Negated angle: screen rotation in y-down frame becomes the
+                // same visual rotation when y is flipped to PDF's y-up.
+                double a = -lbl.Angle;
+                double cosA = Math.Cos(a), sinA = Math.Sin(a);
+                double textW = (lbl.Text?.Length ?? 0) * avgCharW + margin;
+
+                stream.AppendLine("q"); // save graphics state
+                // Compose translate-then-rotate into one cm: matrix is
+                //   [ cos -sin sin cos cx cy ]   (PDF row-major column-vector cm)
+                stream.AppendLine($"{F(cosA)} {F(sinA)} {F(-sinA)} {F(cosA)} {F2(cx)} {F2(cy)} cm");
+                // White background rectangle, centred on origin.
+                stream.AppendLine($"1 1 1 rg {F2(-textW / 2)} {F2(-textH / 2)} {F2(textW)} {F2(textH)} re f");
+                // Dark text, centred on origin.  Approximate baseline drop:
+                // shift down by ~30% of font size so the visual centre lands
+                // on the anchor.
+                string txt = Escape(lbl.Text);
+                double txtX = -(lbl.Text?.Length ?? 0) * avgCharW / 2.0;
+                double txtY = -labelFontSize * 0.32;
+                stream.AppendLine($"0.16 0.16 0.16 rg");
+                stream.AppendLine($"BT /F1 {F2(labelFontSize)} Tf 1 0 0 1 {F2(txtX)} {F2(txtY)} Tm ({txt}) Tj ET");
+                stream.AppendLine("Q"); // restore graphics state
+            }
+        }
+
         // Color bar with labels — labels LEFT of bar, field name RIGHT of bar
         if (!string.IsNullOrEmpty(scene.FieldName))
         {

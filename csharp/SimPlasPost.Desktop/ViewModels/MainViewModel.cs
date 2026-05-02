@@ -256,7 +256,8 @@ public class MainViewModel : INotifyPropertyChanged
         double? eMin = double.TryParse(UserMin, out var mn) ? mn : null;
         double? eMax = double.TryParse(UserMax, out var mx) ? mx : null;
         var scene = SceneBuilder.Build(MeshData, ActiveField, ShowDef, DefScale,
-            Camera, w, h, DisplayMode_, ContourN, eMin, eMax);
+            Camera, w, h, DisplayMode_, ContourN, eMin, eMax,
+            showContourLabels: ShowContourLabels);
         return scene != null ? PdfExporter.Export(scene) : Array.Empty<byte>();
     }
 
