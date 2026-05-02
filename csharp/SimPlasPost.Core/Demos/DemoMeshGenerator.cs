@@ -12,7 +12,7 @@ public static class DemoMeshGenerator
         var nodes = new List<double[]>();
         var elements = new List<Element>();
         double R = 0.3, W = 1;
-        int nr = 6, nth = 16, no = 6;
+        int nr = 24, nth = 64, no = 24;
 
         for (int j = 0; j <= nth; j++)
         {
@@ -89,7 +89,7 @@ public static class DemoMeshGenerator
 
     public static MeshData Gen3DBeam()
     {
-        int nx = 80, ny = 8, nz = 6;
+        int nx = 160, ny = 16, nz = 16;
         double Lx = 4, Ly = 0.5, Lz = 0.5;
         var nodes = new List<double[]>();
         var elements = new List<Element>();
@@ -140,7 +140,7 @@ public static class DemoMeshGenerator
 
     public static MeshData Gen2DTri()
     {
-        int n = 10;
+        int n = 40;
         var nodes = new List<double[]>();
         var elements = new List<Element>();
 
@@ -202,7 +202,7 @@ public static class DemoMeshGenerator
     // ─────────────────────────────────────────────────────────────────────
     public static MeshData GenPerElementBeam()
     {
-        int nx = 24, ny = 6, nz = 4;
+        int nx = 48, ny = 12, nz = 8;
         double Lx = 2.4, Ly = 0.6, Lz = 0.5;
         var nodes = new List<double[]>();
         for (int k = 0; k <= nz; k++)
@@ -354,7 +354,7 @@ public static class DemoMeshGenerator
     // ─────────────────────────────────────────────────────────────────────
     public static MeshData GenAnnulusQuads()
     {
-        int nr = 6, nth = 36;
+        int nr = 16, nth = 96;
         double R1 = 0.4, R2 = 1.0;
         var nodes = new List<double[]>();
         for (int j = 0; j <= nth; j++)
@@ -411,7 +411,7 @@ public static class DemoMeshGenerator
     // ─────────────────────────────────────────────────────────────────────
     public static MeshData GenMixedTriQuad()
     {
-        int n = 12;
+        int n = 40;
         var nodes = new List<double[]>();
         for (int j = 0; j <= n; j++)
         for (int i = 0; i <= n; i++)
@@ -466,7 +466,7 @@ public static class DemoMeshGenerator
     // ─────────────────────────────────────────────────────────────────────
     public static MeshData GenTetBox()
     {
-        int nx = 16, ny = 4, nz = 3;
+        int nx = 48, ny = 12, nz = 10;
         double Lx = 2.4, Ly = 0.6, Lz = 0.5;
         var nodes = new List<double[]>();
         for (int k = 0; k <= nz; k++)
@@ -524,7 +524,7 @@ public static class DemoMeshGenerator
     // ─────────────────────────────────────────────────────────────────────
     public static MeshData GenHouseHexWedge()
     {
-        int ny = 18;
+        int ny = 60;
         double W = 1.0, D = 4.0, H1 = 0.7, H2 = 1.2;
         var nodes = new List<double[]>();
         for (int j = 0; j <= ny; j++)
@@ -593,7 +593,7 @@ public static class DemoMeshGenerator
     // ─────────────────────────────────────────────────────────────────────
     public static MeshData GenToblerone()
     {
-        int ny = 16;
+        int ny = 64;
         double W = 1.0, D = 4.0, H = 0.8;
         var nodes = new List<double[]>();
         for (int j = 0; j <= ny; j++)

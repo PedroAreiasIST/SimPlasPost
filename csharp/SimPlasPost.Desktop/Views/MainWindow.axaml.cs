@@ -31,6 +31,7 @@ public partial class MainWindow : Window
         UpdateFieldList();
         UpdateContourNLabel();
         UpdateDefScaleLabel();
+        PopulateDemoList();
 
         _vm.PropertyChanged += (_, e) =>
         {
@@ -76,11 +77,17 @@ public partial class MainWindow : Window
         PnlFieldRange.IsVisible = !string.IsNullOrEmpty(_vm.ActiveField);
     }
 
-    // ─── Demo buttons ───
-    private void OnDemoClick(object? sender, RoutedEventArgs e)
+    // ─── Examples dropdown ───
+    private void PopulateDemoList()
     {
-        if (sender is Button btn && int.TryParse(btn.Tag?.ToString(), out int idx))
-            _vm.ActiveDemo = idx;
+        CbDemo.Items.Clear();
+        foreach (var name in _vm.DemoNames) CbDemo.Items.Add(name);
+        if (CbDemo.Items.Count > 0) CbDemo.SelectedIndex = _vm.ActiveDemo;
+    }
+
+    private void OnDemoSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (CbDemo.SelectedIndex >= 0) _vm.ActiveDemo = CbDemo.SelectedIndex;
     }
 
     // ─── File loading ───
