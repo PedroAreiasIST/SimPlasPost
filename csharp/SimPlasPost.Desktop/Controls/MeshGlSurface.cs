@@ -499,9 +499,9 @@ public class MeshGlSurface : OpenGlControlBase
                         // Tangent: chord across a few neighbouring points so
                         // the orientation is robust against local Chaikin
                         // wiggles.
-                        int span = Math.Min(3, Math.Min(hit, pl.Points.Count - hit));
-                        var lo = pl.Points[Math.Max(0, hit - span)];
-                        var hi = pl.Points[Math.Min(pl.Points.Count - 1, hit - 1 + span)];
+                        int chord = Math.Min(3, Math.Min(hit, pl.Points.Count - hit));
+                        var lo = pl.Points[Math.Max(0, hit - chord)];
+                        var hi = pl.Points[Math.Min(pl.Points.Count - 1, hit - 1 + chord)];
                         var dir = new[] { hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] };
                         double dl = Math.Sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
                         if (dl < 1e-12) dl = 1;
