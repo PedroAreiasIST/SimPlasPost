@@ -155,7 +155,7 @@ public static class EnsightParser
             if (tokens.Length == 1) Next(); // 'part' alone → next line is the number
             Next(); // part description
 
-            int nodeBase = allNodes.Count;
+            int nodeBase = isE6 ? 0 : allNodes.Count;
 
             // Optional per-part 'coordinates' block (Gold).  In Ensight 6
             // the global block already populated allNodes.
