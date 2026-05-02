@@ -71,6 +71,22 @@ public class ContourLabelWorld
     public double Length { get; set; }
 }
 
+/// <summary>
+/// Output of the contour-label placement pass: a label that survived the
+/// projection + greedy-non-overlap filter, in screen-space ready to draw.
+/// </summary>
+public class PlacedContourLabel
+{
+    /// <summary>Screen-space anchor position (centre of the label).</summary>
+    public double X { get; set; }
+    public double Y { get; set; }
+    /// <summary>Rotation in radians, measured in screen frame
+    /// (atan2(dy, dx) with screen y growing downward), already flipped to
+    /// keep the text right-side-up.</summary>
+    public double Angle { get; set; }
+    public string Text { get; set; } = "";
+}
+
 public class LinePreset
 {
     public string Name { get; set; } = "";
@@ -112,6 +128,7 @@ public class ExportScene
     public List<ProjectedContour> Contours { get; set; } = new();
     public List<ProjectedBar> Bars { get; set; } = new();
     public List<ProjectedPoint> Points { get; set; } = new();
+    public List<PlacedContourLabel> ContourLabels { get; set; } = new();
     public LinePreset Lp { get; set; } = LinePreset.Presets[2];
     public string? FieldName { get; set; }
     public double FMin { get; set; }

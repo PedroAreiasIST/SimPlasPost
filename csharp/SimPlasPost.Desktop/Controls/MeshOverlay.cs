@@ -83,85 +83,33 @@ public class MeshOverlay : Control
     {
         if (_vm == null) return;
         if (!_vm.ShowContourLabels || _vm.DisplayMode_ != DisplayMode.Lines) return;
-        var labels = _vm.ContourLabelsWorld;
-        if (labels.Count == 0) return;
+        if (_vm.ContourLabelsWorld.Count == 0) return;
         if (string.IsNullOrEmpty(_vm.ActiveField)) return;
 
         int w = (int)Math.Max(1, bounds.Width);
         int h = (int)Math.Max(1, bounds.Height);
         var cam = Camera.Build(_vm.Camera);
-        double orthoHH = _vm.Camera.Dist;
-
-        // Sort longest-first so big iso-lines preempt smaller ones in case
-        // of overlap; ToList materialises so we don't re-enumerate the
-        // shared VM list while iterating.
-        var sorted = labels.OrderByDescending(l => l.Length).ToList();
-
         const double textSize = 11;
+
+        // Use the shared placer so the on-screen layout matches the PDF
+        // exporter byte-for-byte (modulo the actual glyph metrics, which
+        // we approximate with avgCharWidth × fontSize).
+        var placed = ContourLabelPlacer.Place(
+            _vm.ContourLabelsWorld, cam, _vm.Camera.Dist, w, h, textSize);
+
         var bgBrush = new SolidColorBrush(Color.FromArgb(220, 255, 255, 255));
         var fgBrush = new SolidColorBrush(Color.FromRgb(40, 40, 40));
 
-        // We collect bounding rectangles of placed labels and skip any new
-        // one whose axis-aligned bbox intersects any of them.  Margin
-        // (in pixels) keeps adjacent labels from kissing.
-        const double Margin = 6;
-        var placedBoxes = new List<Rect>();
-
-        foreach (var label in sorted)
+        foreach (var label in placed)
         {
-            // Project the anchor.
-            var center = Camera.Project(label.Pos, cam, orthoHH, w, h);
-            double cx = center[0], cy = center[1];
-
-            // Cull off-screen anchors (with a small inset).
-            if (cx < 16 || cx > w - 16 || cy < 16 || cy > h - 16) continue;
-
-            // Project an offset along the world tangent so we can read off
-            // the screen rotation.  Use a small but non-trivial offset so
-            // the projected delta stays well-behaved on near-edge-on lines.
-            const double tEps = 0.05;
-            var tipWorld = new[]
-            {
-                label.Pos[0] + label.TangentDir[0] * tEps,
-                label.Pos[1] + label.TangentDir[1] * tEps,
-                label.Pos[2] + label.TangentDir[2] * tEps,
-            };
-            var tip = Camera.Project(tipWorld, cam, orthoHH, w, h);
-            double dx = tip[0] - cx, dy = tip[1] - cy;
-            double dlen2 = dx * dx + dy * dy;
-            if (dlen2 < 4.0)
-            {
-                // Tangent is nearly parallel to the view direction, so the
-                // iso-line projects almost to a point — skip the label.
-                continue;
-            }
-            double angle = Math.Atan2(dy, dx);
-            // Keep text right-side-up: flip orientations beyond ±90°.
-            if (angle > Math.PI / 2) angle -= Math.PI;
-            else if (angle < -Math.PI / 2) angle += Math.PI;
-
             var formatted = new FormattedText(label.Text,
                 System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
                 SciBold, textSize, fgBrush);
-            double textW = formatted.Width + Margin;
+            double textW = formatted.Width + 6;
             double textH = formatted.Height + 2;
 
-            // Conservative AABB: rotated label fits inside a circle of
-            // radius √(w² + h²)/2 around the anchor — using that as the
-            // half-extent of an AABB gives correct overlap rejection
-            // independent of the rotation angle.
-            double diag = Math.Sqrt(textW * textW + textH * textH) * 0.5;
-            var aabb = new Rect(cx - diag, cy - diag, diag * 2, diag * 2);
-            bool overlap = false;
-            foreach (var p in placedBoxes)
-            {
-                if (aabb.Intersects(p)) { overlap = true; break; }
-            }
-            if (overlap) continue;
-            placedBoxes.Add(aabb);
-
-            using (ctx.PushTransform(Matrix.CreateTranslation(cx, cy)))
-            using (ctx.PushTransform(Matrix.CreateRotation(angle)))
+            using (ctx.PushTransform(Matrix.CreateTranslation(label.X, label.Y)))
+            using (ctx.PushTransform(Matrix.CreateRotation(label.Angle)))
             {
                 ctx.FillRectangle(bgBrush,
                     new Rect(-textW / 2, -textH / 2, textW, textH));

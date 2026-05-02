@@ -13,7 +13,8 @@ public static class SceneBuilder
     public static ExportScene? Build(
         MeshData meshData, string? activeField, bool showDef, double defScale,
         CameraParams camParams, int w, int h, DisplayMode dMode, int contourN,
-        double? eMinOverride, double? eMaxOverride)
+        double? eMinOverride, double? eMaxOverride,
+        bool showContourLabels = false)
     {
         if (meshData == null) return null;
 
@@ -217,28 +218,82 @@ public static class SceneBuilder
             }
         }
 
-        // Contour iso-lines
+        // Contour iso-lines and (optionally) value labels.  We build via
+        // SmoothPolylines (rather than Smooth) so the same connected
+        // polyline structure feeds both the per-segment line rendering and
+        // the label-candidate generation, keeping the PDF labels at the
+        // same arc-midpoints as the on-screen overlay.
         var contours = new List<ProjectedContour>();
+        var labelCandidates = new List<ContourLabelWorld>();
         if (effectiveMode == DisplayMode.Lines && fv != null && !isPerElement)
         {
             var rawSegs = ContourGenerator.ComputeSegments(bfaces, dp, fv, efMin, efMax, contourN);
-            var smoothed = ContourGenerator.Smooth(rawSegs, 2);
-            foreach (var seg in smoothed)
+            var polylines = ContourGenerator.SmoothPolylines(rawSegs, 2);
+            foreach (var pl in polylines)
             {
-                var pa = Camera.Project(seg.A, cam, orthoHH, w, h);
-                var pb = Camera.Project(seg.B, cam, orthoHH, w, h);
-                if (ZBufferRenderer.IsSegmentVisible(pa, pb, zbuf, w, h))
+                double t = (pl.Level - efMin) / efSpan;
+                var (cr, cg, cb) = TurboColormap.Sample(t);
+                var pts = pl.Points;
+
+                // Emit per-segment ProjectedContour for the line renderer,
+                // gated by the same z-buffer visibility test as before.
+                for (int i = 0; i < pts.Count - 1; i++)
                 {
-                    double t = (seg.Level - efMin) / efSpan;
-                    var (cr, cg, cb) = TurboColormap.Sample(t);
+                    var pa = Camera.Project(pts[i],     cam, orthoHH, w, h);
+                    var pb = Camera.Project(pts[i + 1], cam, orthoHH, w, h);
+                    if (!ZBufferRenderer.IsSegmentVisible(pa, pb, zbuf, w, h)) continue;
                     contours.Add(new ProjectedContour
                     {
                         P1 = new[] { pa[0], pa[1] }, P2 = new[] { pb[0], pb[1] },
                         R = cr, G = cg, B = cb,
                     });
                 }
+
+                // Label candidate at the polyline's arc midpoint, with a
+                // chord-window tangent (robust against Chaikin wiggles).
+                if (showContourLabels && pts.Count >= 2)
+                {
+                    double total = 0;
+                    for (int i = 1; i < pts.Count; i++) total += Dist3(pts[i - 1], pts[i]);
+                    if (total < 0.06) continue;
+                    double half = total * 0.5, acc = 0;
+                    int hit = 1;
+                    for (int i = 1; i < pts.Count; i++)
+                    {
+                        double L = Dist3(pts[i - 1], pts[i]);
+                        if (acc + L >= half) { hit = i; break; }
+                        acc += L;
+                    }
+                    var aP = pts[hit - 1]; var bP = pts[hit];
+                    double tt = Math.Max(0, Math.Min(1, (half - acc) / Math.Max(1e-12, Dist3(aP, bP))));
+                    var mid = new[]
+                    {
+                        aP[0] + tt * (bP[0] - aP[0]),
+                        aP[1] + tt * (bP[1] - aP[1]),
+                        aP[2] + tt * (bP[2] - aP[2]),
+                    };
+                    int chord = Math.Min(3, Math.Min(hit, pts.Count - hit));
+                    var lo = pts[Math.Max(0, hit - chord)];
+                    var hi = pts[Math.Min(pts.Count - 1, hit - 1 + chord)];
+                    var dir = new[] { hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] };
+                    double dl = Math.Sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+                    if (dl < 1e-12) dl = 1;
+                    dir[0] /= dl; dir[1] /= dl; dir[2] /= dl;
+                    labelCandidates.Add(new ContourLabelWorld
+                    {
+                        Pos = mid, TangentDir = dir,
+                        Text = pl.Level.ToString("G3", System.Globalization.CultureInfo.InvariantCulture),
+                        Length = total,
+                    });
+                }
             }
         }
+        // Run the shared label placer once we have all candidates so PDF
+        // labels land in the same screen positions the overlay computes
+        // from the same world-space candidates.
+        var placedLabels = labelCandidates.Count > 0
+            ? ContourLabelPlacer.Place(labelCandidates, cam, orthoHH, w, h, fontSize: 11)
+            : new List<PlacedContourLabel>();
 
         // Lines mode: faces should be white so the iso-lines and silhouette
         // edges carry all the colour information.  Reset every vertex slot.
@@ -298,10 +353,16 @@ public static class SceneBuilder
         return new ExportScene
         {
             Faces = exportFaces, VisibleEdges = visibleEdges, Contours = contours,
-            Bars = bars, Points = points,
+            Bars = bars, Points = points, ContourLabels = placedLabels,
             Lp = lp, FieldName = displayFieldName, FMin = efMin, FMax = efMax,
             W = w, H = h, Mode = dMode, Rotation = camParams.Rot,
         };
+    }
+
+    private static double Dist3(double[] a, double[] b)
+    {
+        double dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+        return Math.Sqrt(dx * dx + dy * dy + dz * dz);
     }
 
     /// <summary>
