@@ -81,6 +81,19 @@ public class MainViewModel : INotifyPropertyChanged
     private int _contourN = 10;
     public int ContourN { get => _contourN; set { if (Set(ref _contourN, value)) InvalidateScene(); } }
 
+    private bool _showContourLabels;
+    public bool ShowContourLabels { get => _showContourLabels; set { if (Set(ref _showContourLabels, value)) InvalidateScene(); } }
+
+    /// <summary>
+    /// World-space label candidates produced by the renderer in
+    /// Contour-Lines mode when <see cref="ShowContourLabels"/> is on.  The
+    /// overlay control consumes this list, projects the entries to screen
+    /// space each frame, runs greedy non-overlap selection, and draws
+    /// rotated text with a small white background mask so the labels stay
+    /// readable on top of the iso-lines.
+    /// </summary>
+    public List<SimPlasPost.Core.Models.ContourLabelWorld> ContourLabelsWorld { get; } = new();
+
     private string _userMin = "";
     public string UserMin { get => _userMin; set { if (Set(ref _userMin, value)) InvalidateScene(); } }
 
@@ -107,6 +120,11 @@ public class MainViewModel : INotifyPropertyChanged
 
     /// <summary>Raised when the viewport should redraw.</summary>
     public event Action? SceneInvalidated;
+
+    /// <summary>Raised after a new mesh has been loaded.  The view subscribes
+    /// to drive an automatic zoom-to-fit so the user always sees a sensibly
+    /// framed mesh on open without having to click the button.</summary>
+    public event Action? MeshLoaded;
 
     public string[] ScalarFields => MeshData?.Fields
         .Where(f => !f.Value.IsVector)
@@ -144,6 +162,7 @@ public class MainViewModel : INotifyPropertyChanged
 
         Info = $"{d.Name} \u2014 {d.Nodes.Length} nodes, {d.Elements.Count} elems";
         InvalidateScene();
+        MeshLoaded?.Invoke();
     }
 
     public void InvalidateScene() => SceneInvalidated?.Invoke();

@@ -41,6 +41,7 @@ public class MeshGlSurface : OpenGlControlBase
     private string? _cachedUserMin, _cachedUserMax;
     private int _cachedStep = -1;
     private int _cachedContourN = -1;
+    private bool _cachedShowLabels;
     private bool _geomDirty = true;
 
     private float[] _posX = Array.Empty<float>();
@@ -100,7 +101,8 @@ public class MeshGlSurface : OpenGlControlBase
         _vm.DisplayMode_ != _cachedMode ||
         _vm.UserMin != _cachedUserMin || _vm.UserMax != _cachedUserMax ||
         _vm.CurrentStep != _cachedStep ||
-        _vm.ContourN != _cachedContourN);
+        _vm.ContourN != _cachedContourN ||
+        _vm.ShowContourLabels != _cachedShowLabels);
 
     protected override void OnOpenGlInit(GlInterface gl)
     {
@@ -213,6 +215,7 @@ public class MeshGlSurface : OpenGlControlBase
         _cachedMode = dMode; _cachedUserMin = _vm.UserMin; _cachedUserMax = _vm.UserMax;
         _cachedStep = _vm.CurrentStep;
         _cachedContourN = _vm.ContourN;
+        _cachedShowLabels = _vm.ShowContourLabels;
 
         var ns = mesh.Nodes;
         float mnX = float.MaxValue, mnY = float.MaxValue, mnZ = float.MaxValue;
@@ -427,26 +430,92 @@ public class MeshGlSurface : OpenGlControlBase
             _featEdgePos = new float[fed.Length];
             for (int i = 0; i < fed.Length; i++) _featEdgePos[i] = (float)fed[i];
 
+            // Default: clear any prior label state.  We re-populate it below
+            // when both a field is active AND the user requested labels.
+            _vm.ContourLabelsWorld.Clear();
+
             if (fv != null)
             {
                 int contourN = Math.Max(1, _vm.ContourN);
                 var raw = ContourGenerator.ComputeSegments(bfaces, dp, fv, efMin, efMax, contourN);
-                var smooth = ContourGenerator.Smooth(raw, 2);
-                int n = smooth.Count;
-                var pos = new float[n * 6];
-                var cols = new uint[n];
-                for (int i = 0; i < n; i++)
+                var polylines = ContourGenerator.SmoothPolylines(raw, 2);
+
+                // Convert polylines back to GL line-list segments (the on-screen
+                // pipeline draws them as GL_LINES) and remember per-polyline
+                // arc length so the label placer below can prioritise long
+                // iso-lines.
+                var segPos = new List<float>();
+                var segCols = new List<uint>();
+                foreach (var pl in polylines)
                 {
-                    var s = smooth[i];
-                    int b = i * 6;
-                    pos[b] = (float)s.A[0]; pos[b + 1] = (float)s.A[1]; pos[b + 2] = (float)s.A[2];
-                    pos[b + 3] = (float)s.B[0]; pos[b + 4] = (float)s.B[1]; pos[b + 5] = (float)s.B[2];
-                    double t = (s.Level - efMin) / efSpan;
+                    double t = (pl.Level - efMin) / efSpan;
                     var (r, g, b2) = TurboColormap.Sample(t);
-                    cols[i] = 0xFF000000u | ((uint)(r * 255) << 16) | ((uint)(g * 255) << 8) | (uint)(b2 * 255);
+                    uint col = 0xFF000000u | ((uint)(r * 255) << 16) | ((uint)(g * 255) << 8) | (uint)(b2 * 255);
+                    var pts = pl.Points;
+                    for (int i = 0; i < pts.Count - 1; i++)
+                    {
+                        var a = pts[i]; var bb = pts[i + 1];
+                        segPos.Add((float)a[0]); segPos.Add((float)a[1]); segPos.Add((float)a[2]);
+                        segPos.Add((float)bb[0]); segPos.Add((float)bb[1]); segPos.Add((float)bb[2]);
+                        segCols.Add(col);
+                    }
                 }
-                _contourPos = pos;
-                _contourColors = cols;
+                _contourPos = segPos.ToArray();
+                _contourColors = segCols.ToArray();
+
+                // Label candidates: one per polyline whose world-space arc
+                // length is large enough that a label fits comfortably.  The
+                // overlay culls overlaps later (greedy by Length descending).
+                if (_vm.ShowContourLabels)
+                {
+                    foreach (var pl in polylines)
+                    {
+                        if (pl.Points.Count < 2) continue;
+                        // World arc length and midpoint by arc length.
+                        double total = 0;
+                        for (int i = 1; i < pl.Points.Count; i++)
+                            total += Dist(pl.Points[i - 1], pl.Points[i]);
+                        // Skip very short pieces — short iso-loops just clutter.
+                        if (total < 0.06) continue;
+
+                        double half = total * 0.5, acc = 0;
+                        int hit = 1;
+                        for (int i = 1; i < pl.Points.Count; i++)
+                        {
+                            double L = Dist(pl.Points[i - 1], pl.Points[i]);
+                            if (acc + L >= half) { hit = i; break; }
+                            acc += L;
+                        }
+                        var pa = pl.Points[hit - 1];
+                        var pb = pl.Points[hit];
+                        double tt = Math.Max(0, Math.Min(1, (half - acc) / Math.Max(1e-12, Dist(pa, pb))));
+                        var mid = new[]
+                        {
+                            pa[0] + tt * (pb[0] - pa[0]),
+                            pa[1] + tt * (pb[1] - pa[1]),
+                            pa[2] + tt * (pb[2] - pa[2]),
+                        };
+
+                        // Tangent: chord across a few neighbouring points so
+                        // the orientation is robust against local Chaikin
+                        // wiggles.
+                        int span = Math.Min(3, Math.Min(hit, pl.Points.Count - hit));
+                        var lo = pl.Points[Math.Max(0, hit - span)];
+                        var hi = pl.Points[Math.Min(pl.Points.Count - 1, hit - 1 + span)];
+                        var dir = new[] { hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] };
+                        double dl = Math.Sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+                        if (dl < 1e-12) dl = 1;
+                        dir[0] /= dl; dir[1] /= dl; dir[2] /= dl;
+
+                        _vm.ContourLabelsWorld.Add(new ContourLabelWorld
+                        {
+                            Pos = mid,
+                            TangentDir = dir,
+                            Text = pl.Level.ToString("G3", System.Globalization.CultureInfo.InvariantCulture),
+                            Length = total,
+                        });
+                    }
+                }
             }
             else
             {
@@ -459,6 +528,7 @@ public class MeshGlSurface : OpenGlControlBase
             _featEdgePos = Array.Empty<float>();
             _contourPos = Array.Empty<float>();
             _contourColors = Array.Empty<uint>();
+            _vm.ContourLabelsWorld.Clear();
         }
 
         if (_sx.Length != _nVerts)
@@ -637,6 +707,12 @@ public class MeshGlSurface : OpenGlControlBase
                     EmitTri(Idx(i + 1, j), Idx(i + 1, j + 1), Idx(i, j + 1));
             }
         }
+    }
+
+    private static double Dist(double[] a, double[] b)
+    {
+        double dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+        return Math.Sqrt(dx * dx + dy * dy + dz * dz);
     }
 
     private static float[] ProjectWorldSegments(

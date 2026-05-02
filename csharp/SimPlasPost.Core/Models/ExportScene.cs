@@ -49,6 +49,28 @@ public class ProjectedPoint
     public double B { get; set; }
 }
 
+/// <summary>
+/// Candidate position for a contour-line label, expressed in world space so
+/// it can be re-projected each frame as the camera changes.  Produced by the
+/// renderer once per geometry rebuild and consumed by the overlay's per-frame
+/// label-placement pass (which projects, scores, and culls overlapping
+/// labels).
+/// </summary>
+public class ContourLabelWorld
+{
+    /// <summary>Mid-curve world position of the label's anchor.</summary>
+    public double[] Pos { get; set; } = new double[3];
+    /// <summary>Unit-ish world direction along the curve at the anchor;
+    /// used to derive the screen-space rotation each frame.</summary>
+    public double[] TangentDir { get; set; } = new double[3];
+    /// <summary>Pre-formatted level value (e.g. "1.23E+0").</summary>
+    public string Text { get; set; } = "";
+    /// <summary>World arc length of the source polyline.  The overlay sorts
+    /// candidates by this descending so longer iso-lines win the placement
+    /// race when two candidates would overlap.</summary>
+    public double Length { get; set; }
+}
+
 public class LinePreset
 {
     public string Name { get; set; } = "";

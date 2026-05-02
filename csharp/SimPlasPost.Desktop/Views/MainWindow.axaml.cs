@@ -46,7 +46,35 @@ public partial class MainWindow : Window
                 UpdateStepLabel();
         };
 
+        // Auto-fit on every mesh load.  The VM raises MeshLoaded once at
+        // construction (for the default demo) BEFORE this subscription is
+        // attached, so trigger the handler once manually here too — its
+        // body defers to LayoutUpdated when Bounds aren't valid yet, which
+        // they aren't for the very first call (window not laid out).
+        _vm.MeshLoaded += AutoFitOnMeshLoad;
+        AutoFitOnMeshLoad();
+
         UpdateStepControl();
+    }
+
+    private void AutoFitOnMeshLoad()
+    {
+        if (Viewport.Bounds.Width > 1 && Viewport.Bounds.Height > 1)
+        {
+            _vm.ZoomToFit(Viewport.Bounds.Width, Viewport.Bounds.Height);
+            return;
+        }
+        // Defer until the viewport has been laid out at least once.
+        EventHandler<EventArgs>? handler = null;
+        handler = (_, _) =>
+        {
+            if (Viewport.Bounds.Width > 1 && Viewport.Bounds.Height > 1)
+            {
+                Viewport.LayoutUpdated -= handler!;
+                _vm.ZoomToFit(Viewport.Bounds.Width, Viewport.Bounds.Height);
+            }
+        };
+        Viewport.LayoutUpdated += handler;
     }
 
     private void UpdateStepControl()
@@ -361,6 +389,11 @@ public partial class MainWindow : Window
     }
 
     private void UpdateContourNLabel() => TxtContourN.Text = $"Iso-levels: {(int)SlContourN.Value}";
+
+    private void OnContourLabelsChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_vm != null) _vm.ShowContourLabels = CbContourLabels.IsChecked == true;
+    }
 
     // ─── Time step ───
     private void OnStepChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
