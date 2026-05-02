@@ -383,7 +383,7 @@ public partial class MainWindow : Window
 
     // ─── View presets ───
     private void OnZoomToFit(object? sender, RoutedEventArgs e) =>
-        _vm.ZoomToFit(Viewport.Bounds.Width / Math.Max(1, Viewport.Bounds.Height));
+        _vm.ZoomToFit(Viewport.Bounds.Width, Viewport.Bounds.Height);
 
     private void OnPresetView(object? sender, RoutedEventArgs e)
     {

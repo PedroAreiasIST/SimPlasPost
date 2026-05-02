@@ -273,11 +273,19 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     // ─── Zoom to fit ───
-    public void ZoomToFit(double aspect)
+    /// <summary>
+    /// Fit the mesh in the live viewport's available drawing area.  When a
+    /// scalar field is active the right-hand colour bar (≈200 px wide on
+    /// screen) is excluded from the available area so the mesh doesn't
+    /// disappear behind it; the camera target is shifted so the mesh
+    /// centres within the remaining left portion of the viewport.
+    /// </summary>
+    public void ZoomToFit(double w, double h)
     {
-        if (MeshData == null) return;
+        if (MeshData == null || w < 1 || h < 1) return;
 
-        // Compute normalized bounding box
+        // Compute normalized bounding box (matches the [-1,1]ish space the
+        // renderer uses for projection — see MeshGlSurface.RebuildGeometry).
         var ns = MeshData.Nodes;
         double mnX = double.MaxValue, mnY = double.MaxValue, mnZ = double.MaxValue;
         double mxX = double.MinValue, mxY = double.MinValue, mxZ = double.MinValue;
@@ -296,9 +304,8 @@ public class MainViewModel : INotifyPropertyChanged
 
         var c = Camera;
         var rot = c.Rot;
-        // Extract basis from rotation matrix rows
         double[] right = { rot[0], rot[1], rot[2] };
-        double[] upC = { rot[3], rot[4], rot[5] };
+        double[] upC   = { rot[3], rot[4], rot[5] };
 
         double x0 = double.MaxValue, x1 = double.MinValue, y0 = double.MaxValue, y1 = double.MinValue;
         for (int ix = 0; ix < 2; ix++)
@@ -309,17 +316,36 @@ public class MainViewModel : INotifyPropertyChanged
             double py = iy == 1 ? bbMxY : bbMnY;
             double pz = iz == 1 ? bbMxZ : bbMnZ;
             double vx = px * right[0] + py * right[1] + pz * right[2];
-            double vy = px * upC[0] + py * upC[1] + pz * upC[2];
+            double vy = px * upC[0]   + py * upC[1]   + pz * upC[2];
             x0 = Math.Min(x0, vx); x1 = Math.Max(x1, vx);
             y0 = Math.Min(y0, vy); y1 = Math.Max(y1, vy);
         }
 
         double viewW = x1 - x0, viewH = y1 - y0;
         double viewCx = (x0 + x1) / 2, viewCy = (y0 + y1) / 2;
-        double cbExtra = !string.IsNullOrEmpty(ActiveField) ? 1.25 : 1.0;
 
-        c.Dist = Math.Max(viewH / 2 * 1.08, Math.Max(viewW / 2 * 1.08 * cbExtra / aspect, 0.3));
-        double adjCx = !string.IsNullOrEmpty(ActiveField) ? viewCx - c.Dist * aspect * 0.1 : viewCx;
+        // Pixel width of the colour-bar region on screen, derived from
+        // MeshOverlay.DrawColorBar: 22-px bar, ~110-px right margin for
+        // the rotated field name, ~70-px left margin for "1.23E+02"-style
+        // labels.  ~200 px in total when a field is active, otherwise 0.
+        double cbW = !string.IsNullOrEmpty(ActiveField) ? 200.0 : 0.0;
+        double availW = Math.Max(1, w - cbW);
+
+        const double pad = 1.08; // 8% padding so geometry doesn't graze the edges
+        // Required orthographic half-height to fit the mesh in (availW × h):
+        //   vertical-binding:    Dist >= viewH / 2
+        //   horizontal-binding:  viewW * scale <= availW where scale = h/(2*Dist)
+        //                     →  Dist >= viewW * h / (2 * availW)
+        c.Dist = Math.Max(viewH / 2 * pad,
+                  Math.Max(viewW * h / (2 * availW) * pad, 0.3));
+
+        // Shift the camera target so the mesh's image centres in the
+        // available LEFT portion (pixels [0, w-cbW]) instead of in the
+        // full viewport.  Mesh-image needs to shift LEFT by cbW/2 px,
+        // which means moving the target RIGHT by cbW/2 px in view-space.
+        // 1 pixel of view-space at this Dist is (2*Dist / h), so the
+        // shift to apply is cbW * Dist / h.
+        double adjCx = viewCx + cbW * c.Dist / h;
         c.Tx = adjCx * right[0] + viewCy * upC[0];
         c.Ty = adjCx * right[1] + viewCy * upC[1];
         c.Tz = adjCx * right[2] + viewCy * upC[2];
