@@ -80,10 +80,18 @@ public class MeshViewport : Panel
         }
         else
         {
+            // Arcball rotation, applied so the mesh rotates WITH the cursor
+            // (consistent with the 1:1 pan: drag right → the mesh's right
+            // face sweeps toward the viewer).  The arcball-delta maps its
+            // first point onto its second; we pass the CURRENT position as
+            // the first and the LAST position as the second so the
+            // resulting rotation is the inverse of "camera orbits with
+            // cursor", i.e. "mesh rotates with cursor".
             double w = Bounds.Width, h = Bounds.Height, dim = Math.Min(w, h);
             cam.Rot = CameraParams.Mul(CameraParams.ArcballDelta(
-                (2 * _lastMouse.X - w) / dim, -(2 * _lastMouse.Y - h) / dim,
-                (2 * pos.X - w) / dim, -(2 * pos.Y - h) / dim), cam.Rot);
+                (2 * pos.X - w) / dim,         -(2 * pos.Y - h) / dim,
+                (2 * _lastMouse.X - w) / dim,  -(2 * _lastMouse.Y - h) / dim),
+                cam.Rot);
         }
         _lastMouse = pos;
         _vm.InvalidateScene();
