@@ -145,11 +145,14 @@ public class MeshGlSurface : OpenGlControlBase
     private int _frameCount;
     protected override void OnOpenGlRender(GlInterface gl, int fb)
     {
+        // Avalonia invokes this from a native callback.  An exception that
+        // unwinds out of here can land the runtime in FailFast (exit 134
+        // on Linux), so we log and swallow instead of rethrowing — losing
+        // a frame is better than killing the app.
         try { RenderInner(fb); }
         catch (Exception ex)
         {
             Diag.Log("OnOpenGlRender threw: " + ex);
-            throw;
         }
     }
 
@@ -316,17 +319,26 @@ public class MeshGlSurface : OpenGlControlBase
         // colouring all three slots of every triangle in this face get the
         // colour of the owning element (so adjacent elements with different
         // values produce a sharp colour step at their shared edge).
-        int triCount = 0;
-        for (int fi = 0; fi < bfaces.Count; fi++)
-        {
-            int n = bfaces[fi].Length;
-            if (n >= 3) triCount += n - 2;
-        }
-        _triNode = new int[triCount * 3];
-        _triR = new byte[triCount * 3];
-        _triG = new byte[triCount * 3];
-        _triB = new byte[triCount * 3];
-        int triIdx = 0;
+        //
+        // For per-NODE fields we additionally barycentrically subdivide
+        // faces whose vertex t-range straddles multiple Turbo LUT bins.
+        // The reason: GL interpolates RGB linearly between vertex slots,
+        // and linear RGB interpolation does NOT track the Turbo curve —
+        // a face going from blue (t≈0.1) to yellow (t≈0.6) gets a muddy
+        // gray midpoint instead of the Turbo green at t=0.35.  Subdividing
+        // keeps each sub-edge inside ~one LUT bin where linear RGB ≈ LUT
+        // lookup.  Sub-vertex positions are interpolated in normalized
+        // mesh space and appended to _posX/_posY/_posZ so the per-frame
+        // projection picks them up automatically.
+        var triNodes = new List<int>();
+        var triR = new List<byte>();
+        var triG = new List<byte>();
+        var triB = new List<byte>();
+        var extraX = new List<float>();
+        var extraY = new List<float>();
+        var extraZ = new List<float>();
+        int origVerts = _nVerts;
+
         for (int fi = 0; fi < bfaces.Count; fi++)
         {
             var face = bfaces[fi];
@@ -343,13 +355,66 @@ public class MeshGlSurface : OpenGlControlBase
                 er = (byte)(r * 255); eg = (byte)(g * 255); eb = (byte)(b * 255);
             }
 
-            for (int t = 1; t < n - 1; t++)
+            int subdivN = 1;
+            double[]? tArr = null;
+            if (!useElemColor && !whiteFaces && fv != null && !isPerElement)
             {
-                int n0 = face[0], n1 = face[t], n2 = face[t + 1];
-                Slot(triIdx++, n0, useElemColor, er, eg, eb, vr, vg, vb);
-                Slot(triIdx++, n1, useElemColor, er, eg, eb, vr, vg, vb);
-                Slot(triIdx++, n2, useElemColor, er, eg, eb, vr, vg, vb);
+                tArr = new double[n];
+                double tMin = double.MaxValue, tMax = double.MinValue;
+                for (int j = 0; j < n; j++)
+                {
+                    tArr[j] = (fv[face[j]] - efMin) / efSpan;
+                    if (tArr[j] < tMin) tMin = tArr[j];
+                    if (tArr[j] > tMax) tMax = tArr[j];
+                }
+                // Turbo LUT has ~31 bins (Δt ≈ 1/30); pick N so each sub-edge
+                // spans at most one bin, capped to keep triangle counts bounded.
+                subdivN = (int)Math.Clamp(Math.Ceiling((tMax - tMin) * 30.0), 1, 8);
             }
+
+            for (int k = 1; k < n - 1; k++)
+            {
+                int n0 = face[0], n1 = face[k], n2 = face[k + 1];
+                if (subdivN <= 1)
+                {
+                    AppendSlot(triNodes, triR, triG, triB, n0, useElemColor, er, eg, eb, vr, vg, vb);
+                    AppendSlot(triNodes, triR, triG, triB, n1, useElemColor, er, eg, eb, vr, vg, vb);
+                    AppendSlot(triNodes, triR, triG, triB, n2, useElemColor, er, eg, eb, vr, vg, vb);
+                }
+                else
+                {
+                    AppendRefinedTriangle(
+                        n0, n1, n2,
+                        tArr![0], tArr[k], tArr[k + 1],
+                        subdivN, _posX, _posY, _posZ, origVerts,
+                        extraX, extraY, extraZ,
+                        triNodes, triR, triG, triB);
+                }
+            }
+        }
+
+        _triNode = triNodes.ToArray();
+        _triR = triR.ToArray();
+        _triG = triG.ToArray();
+        _triB = triB.ToArray();
+
+        if (extraX.Count > 0)
+        {
+            int newCount = origVerts + extraX.Count;
+            var nx = new float[newCount];
+            var ny = new float[newCount];
+            var nz = new float[newCount];
+            Array.Copy(_posX, nx, origVerts);
+            Array.Copy(_posY, ny, origVerts);
+            Array.Copy(_posZ, nz, origVerts);
+            for (int i = 0; i < extraX.Count; i++)
+            {
+                nx[origVerts + i] = extraX[i];
+                ny[origVerts + i] = extraY[i];
+                nz[origVerts + i] = extraZ[i];
+            }
+            _posX = nx; _posY = ny; _posZ = nz;
+            _nVerts = newCount;
         }
 
         if (effectiveMode == DisplayMode.Lines)
@@ -478,19 +543,100 @@ public class MeshGlSurface : OpenGlControlBase
     }
 
     /// <summary>
-    /// Fill one slot of the triangle-soup arrays at index <paramref name="slot"/>:
-    /// stores the source node index (used at projection time) plus an RGB
-    /// triple — either the owning element's colour (when <paramref name="useElem"/>
-    /// is true, for per-element fields) or the node's colour from the
-    /// per-node colour table (otherwise, for per-node fields).
+    /// Append one triangle-soup slot: stores the source node index (used at
+    /// projection time) plus an RGB triple — either the owning element's
+    /// colour (when <paramref name="useElem"/> is true, for per-element
+    /// fields) or the node's colour from the per-node colour table.
     /// </summary>
-    private void Slot(int slot, int node, bool useElem,
+    private static void AppendSlot(
+        List<int> triNodes, List<byte> triR, List<byte> triG, List<byte> triB,
+        int node, bool useElem,
         byte er, byte eg, byte eb,
         byte[] vr, byte[] vg, byte[] vb)
     {
-        _triNode[slot] = node;
-        if (useElem) { _triR[slot] = er; _triG[slot] = eg; _triB[slot] = eb; }
-        else         { _triR[slot] = vr[node]; _triG[slot] = vg[node]; _triB[slot] = vb[node]; }
+        triNodes.Add(node);
+        if (useElem) { triR.Add(er); triG.Add(eg); triB.Add(eb); }
+        else         { triR.Add(vr[node]); triG.Add(vg[node]); triB.Add(vb[node]); }
+    }
+
+    /// <summary>
+    /// Subdivide a triangle (n0, n1, n2) with per-vertex colormap parameters
+    /// (t0, t1, t2) into N×N barycentric sub-triangles.  The three corner
+    /// vertices keep their original mesh-node indices; interior and edge
+    /// sub-vertices get fresh indices appended into the extra-position lists,
+    /// and the per-frame projection picks them up via the extended
+    /// <see cref="_posX"/>/<see cref="_posY"/>/<see cref="_posZ"/> arrays.
+    /// Each sub-vertex's colour is sampled from the Turbo LUT at the
+    /// barycentrically-interpolated t value, so linear RGB interpolation
+    /// across each sub-edge stays close to the actual LUT curve.
+    /// </summary>
+    private static void AppendRefinedTriangle(
+        int n0, int n1, int n2,
+        double t0, double t1, double t2,
+        int N,
+        float[] posX, float[] posY, float[] posZ,
+        int origCount,
+        List<float> extraX, List<float> extraY, List<float> extraZ,
+        List<int> triNodes, List<byte> triR, List<byte> triG, List<byte> triB)
+    {
+        int rows = N + 1;
+        int total = rows * rows;
+        var idxAt = new int[total];
+        var rAt = new byte[total];
+        var gAt = new byte[total];
+        var bAt = new byte[total];
+
+        int Idx(int i, int j) => i * rows + j;
+
+        for (int i = 0; i <= N; i++)
+        {
+            for (int j = 0; j <= N - i; j++)
+            {
+                int s = Idx(i, j);
+                int nodeIdx;
+                if (i == 0 && j == 0) nodeIdx = n0;
+                else if (i == N && j == 0) nodeIdx = n1;
+                else if (i == 0 && j == N) nodeIdx = n2;
+                else
+                {
+                    double a = 1.0 - (i + j) / (double)N;
+                    double b = i / (double)N;
+                    double c = j / (double)N;
+                    float px = (float)(a * posX[n0] + b * posX[n1] + c * posX[n2]);
+                    float py = (float)(a * posY[n0] + b * posY[n1] + c * posY[n2]);
+                    float pz = (float)(a * posZ[n0] + b * posZ[n1] + c * posZ[n2]);
+                    nodeIdx = origCount + extraX.Count;
+                    extraX.Add(px); extraY.Add(py); extraZ.Add(pz);
+                }
+                idxAt[s] = nodeIdx;
+
+                double aa = 1.0 - (i + j) / (double)N;
+                double bb = i / (double)N;
+                double cc = j / (double)N;
+                double tv = aa * t0 + bb * t1 + cc * t2;
+                var (cr, cg, cbl) = TurboColormap.Sample(tv);
+                rAt[s] = (byte)(cr * 255);
+                gAt[s] = (byte)(cg * 255);
+                bAt[s] = (byte)(cbl * 255);
+            }
+        }
+
+        void EmitTri(int sa, int sb, int sc)
+        {
+            triNodes.Add(idxAt[sa]); triR.Add(rAt[sa]); triG.Add(gAt[sa]); triB.Add(bAt[sa]);
+            triNodes.Add(idxAt[sb]); triR.Add(rAt[sb]); triG.Add(gAt[sb]); triB.Add(bAt[sb]);
+            triNodes.Add(idxAt[sc]); triR.Add(rAt[sc]); triG.Add(gAt[sc]); triB.Add(bAt[sc]);
+        }
+
+        for (int i = 0; i < N; i++)
+        {
+            for (int j = 0; j < N - i; j++)
+            {
+                EmitTri(Idx(i, j), Idx(i + 1, j), Idx(i, j + 1));
+                if (i + j < N - 1)
+                    EmitTri(Idx(i + 1, j), Idx(i + 1, j + 1), Idx(i, j + 1));
+            }
+        }
     }
 
     private static float[] ProjectWorldSegments(

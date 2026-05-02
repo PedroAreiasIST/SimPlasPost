@@ -2,154 +2,124 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="using:SimPlasPost.Desktop.Controls"
         x:Class="SimPlasPost.Desktop.Views.MainWindow"
-        Title="SIMPLAS Viewer" Width="1100" Height="700"
-        Background="#12141a">
+        Title="SIMPLAS Viewer" Width="1100" Height="700">
   <DockPanel>
     <!-- Top bar: demo buttons -->
-    <Border DockPanel.Dock="Top" Background="#1a1d25" BorderBrush="#2a2e38" BorderThickness="0,0,0,1" Padding="8,5">
+    <Border DockPanel.Dock="Top" Background="#C0C0C0" BorderBrush="#808080" BorderThickness="0,0,0,1" Padding="8,5">
       <StackPanel Orientation="Horizontal" Spacing="6">
-        <TextBlock Text="SIMPLAS Viewer" Foreground="#4a9eff" FontWeight="Bold" FontSize="14" VerticalAlignment="Center" Margin="0,0,12,0"/>
-        <Button x:Name="BtnDemo0" Content="Plate with Hole" Click="OnDemoClick" Tag="0" Classes="demo"/>
-        <Button x:Name="BtnDemo1" Content="Cantilever" Click="OnDemoClick" Tag="1" Classes="demo"/>
-        <Button x:Name="BtnDemo2" Content="Unit Square" Click="OnDemoClick" Tag="2" Classes="demo"/>
-        <Button x:Name="BtnDemo3" Content="Annular Quads" Click="OnDemoClick" Tag="3" Classes="demo"/>
-        <Button x:Name="BtnDemo4" Content="Mixed Tri+Quad" Click="OnDemoClick" Tag="4" Classes="demo"/>
-        <Button x:Name="BtnDemo5" Content="Tet Beam" Click="OnDemoClick" Tag="5" Classes="demo"/>
-        <Button x:Name="BtnDemo6" Content="House (Hex+Wedge)" Click="OnDemoClick" Tag="6" Classes="demo"/>
-        <Button x:Name="BtnDemo7" Content="Toblerone (Tet+Wedge)" Click="OnDemoClick" Tag="7" Classes="demo"/>
-        <Button x:Name="BtnDemo8" Content="All Element Types" Click="OnDemoClick" Tag="8" Classes="demo"/>
-        <Button x:Name="BtnDemo9" Content="Per-Element Field" Click="OnDemoClick" Tag="9" Classes="demo"/>
+        <TextBlock Text="SIMPLAS Viewer" FontWeight="Bold" FontSize="18" VerticalAlignment="Center" Margin="0,0,12,0"/>
+        <Button x:Name="BtnDemo0" Content="Plate with Hole" Click="OnDemoClick" Tag="0"/>
+        <Button x:Name="BtnDemo1" Content="Cantilever" Click="OnDemoClick" Tag="1"/>
+        <Button x:Name="BtnDemo2" Content="Unit Square" Click="OnDemoClick" Tag="2"/>
+        <Button x:Name="BtnDemo3" Content="Annular Quads" Click="OnDemoClick" Tag="3"/>
+        <Button x:Name="BtnDemo4" Content="Mixed Tri+Quad" Click="OnDemoClick" Tag="4"/>
+        <Button x:Name="BtnDemo5" Content="Tet Beam" Click="OnDemoClick" Tag="5"/>
+        <Button x:Name="BtnDemo6" Content="House (Hex+Wedge)" Click="OnDemoClick" Tag="6"/>
+        <Button x:Name="BtnDemo7" Content="Toblerone (Tet+Wedge)" Click="OnDemoClick" Tag="7"/>
+        <Button x:Name="BtnDemo8" Content="All Element Types" Click="OnDemoClick" Tag="8"/>
+        <Button x:Name="BtnDemo9" Content="Per-Element Field" Click="OnDemoClick" Tag="9"/>
       </StackPanel>
     </Border>
 
     <!-- Sidebar -->
-    <ScrollViewer DockPanel.Dock="Left" Width="215" Background="#16181f">
+    <ScrollViewer DockPanel.Dock="Left" Width="215" Background="#C0C0C0">
       <StackPanel Margin="10,8" Spacing="4">
 
         <!-- Load Data -->
-        <TextBlock Text="Load Data" Foreground="#4a9eff" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
-        <Button x:Name="BtnLoadEnsight" Content="Ensight (.case + files)" Click="OnLoadEnsight" HorizontalAlignment="Stretch"
-                BorderBrush="#4a9eff" Foreground="#4a9eff" FontSize="11" Padding="5,5"/>
-        <Button x:Name="BtnLoadJson" Content="JSON mesh" Click="OnLoadJson" HorizontalAlignment="Stretch"
-                BorderBrush="#667788" Foreground="#667788" FontSize="11" Padding="5,5"/>
-        <TextBlock x:Name="TxtLog" FontSize="11" Foreground="#8ad5a0" TextWrapping="Wrap" Margin="0,4,0,0"/>
+        <TextBlock Text="Load Data" Classes="section" Margin="0,0,0,4"/>
+        <Button x:Name="BtnLoadEnsight" Content="Ensight (.case + files)" Click="OnLoadEnsight" HorizontalAlignment="Stretch"/>
+        <Button x:Name="BtnLoadJson" Content="JSON mesh" Click="OnLoadJson" HorizontalAlignment="Stretch"/>
+        <TextBlock x:Name="TxtLog" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
 
         <!-- Display Mode -->
-        <TextBlock Text="Display" Foreground="#4a9eff" FontSize="11" FontWeight="SemiBold" Margin="0,10,0,4"/>
-        <RadioButton x:Name="RbWireframe" Content="Wireframe" GroupName="DMode" FontSize="11" Foreground="#c8cdd5" Click="OnDisplayModeChanged"/>
-        <RadioButton x:Name="RbPlot" Content="Contour Plot" GroupName="DMode" IsChecked="True" FontSize="11" Foreground="#c8cdd5" Click="OnDisplayModeChanged"/>
-        <RadioButton x:Name="RbLines" Content="Contour Lines" GroupName="DMode" FontSize="11" Foreground="#c8cdd5" Click="OnDisplayModeChanged"/>
+        <TextBlock Text="Display" Classes="section" Margin="0,10,0,4"/>
+        <RadioButton x:Name="RbWireframe" Content="Wireframe" GroupName="DMode" Click="OnDisplayModeChanged"/>
+        <RadioButton x:Name="RbPlot" Content="Contour Plot" GroupName="DMode" IsChecked="True" Click="OnDisplayModeChanged"/>
+        <RadioButton x:Name="RbLines" Content="Contour Lines" GroupName="DMode" Click="OnDisplayModeChanged"/>
 
         <StackPanel x:Name="PnlContourN" IsVisible="False" Margin="0,4,0,0">
-          <TextBlock x:Name="TxtContourN" FontSize="10" Foreground="#667788"/>
+          <TextBlock x:Name="TxtContourN" Classes="hint"/>
           <Slider x:Name="SlContourN" Minimum="3" Maximum="30" Value="10" IsSnapToTickEnabled="True" TickFrequency="1"
                   ValueChanged="OnContourNChanged"/>
         </StackPanel>
 
         <!-- Time Step -->
         <StackPanel x:Name="PnlSteps" IsVisible="False" Margin="0,10,0,0">
-          <TextBlock Text="Time Step" Foreground="#4a9eff" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
-          <TextBlock x:Name="TxtStep" FontSize="10" Foreground="#667788"/>
+          <TextBlock Text="Time Step" Classes="section" Margin="0,0,0,4"/>
+          <TextBlock x:Name="TxtStep" Classes="hint"/>
           <Slider x:Name="SlStep" Minimum="0" Maximum="1" Value="0" IsSnapToTickEnabled="True" TickFrequency="1"
                   ValueChanged="OnStepChanged"/>
         </StackPanel>
 
         <!-- Field -->
-        <TextBlock Text="Field" Foreground="#4a9eff" FontSize="11" FontWeight="SemiBold" Margin="0,10,0,4"/>
-        <ComboBox x:Name="CbField" FontSize="11" HorizontalAlignment="Stretch" SelectionChanged="OnFieldChanged"/>
+        <TextBlock Text="Field" Classes="section" Margin="0,10,0,4"/>
+        <ComboBox x:Name="CbField" HorizontalAlignment="Stretch" SelectionChanged="OnFieldChanged"/>
         <StackPanel x:Name="PnlFieldRange" IsVisible="False" Margin="0,4,0,0" Spacing="3">
           <StackPanel Orientation="Horizontal" Spacing="4">
-            <TextBlock Text="Min" FontSize="10" Foreground="#667788" Width="28" VerticalAlignment="Center"/>
-            <TextBox x:Name="TxtMin" FontSize="10" HorizontalAlignment="Stretch" PlaceholderText="auto"
+            <TextBlock Text="Min" Classes="hint" Width="28" VerticalAlignment="Center"/>
+            <TextBox x:Name="TxtMin" HorizontalAlignment="Stretch" PlaceholderText="auto"
                      LostFocus="OnRangeChanged" KeyDown="OnRangeKeyDown"/>
           </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="4">
-            <TextBlock Text="Max" FontSize="10" Foreground="#667788" Width="28" VerticalAlignment="Center"/>
-            <TextBox x:Name="TxtMax" FontSize="10" HorizontalAlignment="Stretch" PlaceholderText="auto"
+            <TextBlock Text="Max" Classes="hint" Width="28" VerticalAlignment="Center"/>
+            <TextBox x:Name="TxtMax" HorizontalAlignment="Stretch" PlaceholderText="auto"
                      LostFocus="OnRangeChanged" KeyDown="OnRangeKeyDown"/>
           </StackPanel>
-          <Button Content="Reset to auto" FontSize="9" Click="OnResetRange" Padding="2,2"/>
+          <Button Content="Reset to auto" Click="OnResetRange"/>
         </StackPanel>
 
         <!-- Deformation -->
-        <TextBlock Text="Deformation" Foreground="#4a9eff" FontSize="11" FontWeight="SemiBold" Margin="0,10,0,4"/>
-        <CheckBox x:Name="CbShowDef" Content="Deformed shape" FontSize="11" Foreground="#c8cdd5" Click="OnShowDefChanged"/>
-        <TextBlock x:Name="TxtDefScale" FontSize="10" Foreground="#667788" Margin="0,2,0,0"/>
+        <TextBlock Text="Deformation" Classes="section" Margin="0,10,0,4"/>
+        <CheckBox x:Name="CbShowDef" Content="Deformed shape" Click="OnShowDefChanged"/>
+        <TextBlock x:Name="TxtDefScale" Classes="hint" Margin="0,2,0,0"/>
         <Slider x:Name="SlDefScale" Minimum="0" Maximum="20" Value="1" ValueChanged="OnDefScaleChanged"/>
 
         <!-- View Presets -->
-        <TextBlock Text="View" Foreground="#4a9eff" FontSize="11" FontWeight="SemiBold" Margin="0,10,0,4"/>
-        <Button Content="Zoom to Fit" Click="OnZoomToFit" HorizontalAlignment="Stretch"
-                Background="#1a2a3a" Foreground="#6ab4ff" BorderBrush="#4a9eff" FontSize="11" Padding="5,5" Margin="0,0,0,4"/>
-        <TextBlock Text="Orthographic axes" FontSize="9" Foreground="#667788" Margin="0,0,0,2"/>
+        <TextBlock Text="View" Classes="section" Margin="0,10,0,4"/>
+        <Button Content="Zoom to Fit" Click="OnZoomToFit" HorizontalAlignment="Stretch" Margin="0,0,0,4"/>
+        <TextBlock Text="Orthographic axes" Classes="hint" Margin="0,0,0,2"/>
         <UniformGrid Columns="3" Margin="0,0,0,4">
-          <Button Content="+X" Click="OnPresetView" Tag="pX" Classes="preset" Padding="3"/>
-          <Button Content="-X" Click="OnPresetView" Tag="nX" Classes="preset" Padding="3"/>
-          <Button Content="+Y" Click="OnPresetView" Tag="pY" Classes="preset" Padding="3"/>
-          <Button Content="-Y" Click="OnPresetView" Tag="nY" Classes="preset" Padding="3"/>
-          <Button Content="+Z" Click="OnPresetView" Tag="pZ" Classes="preset" Padding="3"/>
-          <Button Content="-Z" Click="OnPresetView" Tag="nZ" Classes="preset" Padding="3"/>
+          <Button Content="+X" Click="OnPresetView" Tag="pX"/>
+          <Button Content="-X" Click="OnPresetView" Tag="nX"/>
+          <Button Content="+Y" Click="OnPresetView" Tag="pY"/>
+          <Button Content="-Y" Click="OnPresetView" Tag="nY"/>
+          <Button Content="+Z" Click="OnPresetView" Tag="pZ"/>
+          <Button Content="-Z" Click="OnPresetView" Tag="nZ"/>
         </UniformGrid>
-        <TextBlock Text="Isometric" FontSize="9" Foreground="#667788" Margin="0,0,0,2"/>
+        <TextBlock Text="Isometric" Classes="hint" Margin="0,0,0,2"/>
         <UniformGrid Columns="4" Margin="0,0,0,4">
-          <Button Content="FR" Click="OnPresetView" Tag="iFR" Classes="preset" Padding="3"/>
-          <Button Content="FL" Click="OnPresetView" Tag="iFL" Classes="preset" Padding="3"/>
-          <Button Content="BR" Click="OnPresetView" Tag="iBR" Classes="preset" Padding="3"/>
-          <Button Content="BL" Click="OnPresetView" Tag="iBL" Classes="preset" Padding="3"/>
+          <Button Content="FR" Click="OnPresetView" Tag="iFR"/>
+          <Button Content="FL" Click="OnPresetView" Tag="iFL"/>
+          <Button Content="BR" Click="OnPresetView" Tag="iBR"/>
+          <Button Content="BL" Click="OnPresetView" Tag="iBL"/>
         </UniformGrid>
 
         <!-- Saved Views -->
-        <TextBlock Text="Saved Views" Foreground="#4a9eff" FontSize="11" FontWeight="SemiBold" Margin="0,10,0,4"/>
+        <TextBlock Text="Saved Views" Classes="section" Margin="0,10,0,4"/>
         <StackPanel Orientation="Horizontal" Spacing="3" Margin="0,0,0,3">
-          <TextBox x:Name="TxtViewName" FontSize="10" PlaceholderText="Name (optional)" HorizontalAlignment="Stretch"
+          <TextBox x:Name="TxtViewName" PlaceholderText="Name (optional)" HorizontalAlignment="Stretch"
                    KeyDown="OnViewNameKeyDown"/>
-          <Button Content="Save" Click="OnSaveView" Foreground="#68d391" BorderBrush="#48bb78" FontSize="10" Padding="3,3"/>
+          <Button Content="Save" Click="OnSaveView"/>
         </StackPanel>
         <ItemsControl x:Name="IcSavedViews">
           <ItemsControl.ItemTemplate>
             <DataTemplate>
               <StackPanel Orientation="Horizontal" Spacing="3" Margin="0,1">
-                <Button Content="{Binding Name}" Click="OnRestoreView" HorizontalAlignment="Stretch"
-                        FontSize="9" Foreground="#aabbcc" Padding="3,2"/>
-                <Button Content="x" Click="OnDeleteView" Foreground="#ee8888" BorderBrush="#553333"
-                        FontSize="9" Padding="2,1"/>
+                <Button Content="{Binding Name}" Click="OnRestoreView" HorizontalAlignment="Stretch"/>
+                <Button Content="x" Click="OnDeleteView"/>
               </StackPanel>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
 
         <!-- Export -->
-        <TextBlock Text="Export" Foreground="#4a9eff" FontSize="11" FontWeight="SemiBold" Margin="0,14,0,4"/>
-        <TextBlock Text="Vector PDF, white bg, flat shading." FontSize="9" Foreground="#556677" TextWrapping="Wrap" Margin="0,0,0,4"/>
-        <Button Content="Export PDF" Click="OnExportPdf" HorizontalAlignment="Stretch"
-                Foreground="#feb2b2" BorderBrush="#e53e3e" FontSize="11" Padding="5,5" Classes="export"/>
+        <TextBlock Text="Export" Classes="section" Margin="0,14,0,4"/>
+        <TextBlock Text="Vector PDF, white bg, flat shading." Classes="hint" TextWrapping="Wrap" Margin="0,0,0,4"/>
+        <Button Content="Export PDF" Click="OnExportPdf" HorizontalAlignment="Stretch"/>
       </StackPanel>
     </ScrollViewer>
 
     <!-- Main viewport -->
     <controls:MeshViewport x:Name="Viewport" Focusable="True"/>
   </DockPanel>
-
-  <Window.Styles>
-    <Style Selector="Button.demo">
-      <Setter Property="FontSize" Value="11"/>
-      <Setter Property="Padding" Value="4,4"/>
-      <Setter Property="Background" Value="#22252e"/>
-      <Setter Property="Foreground" Value="#889"/>
-      <Setter Property="BorderBrush" Value="#333844"/>
-      <Setter Property="CornerRadius" Value="4"/>
-    </Style>
-    <Style Selector="Button.preset">
-      <Setter Property="FontSize" Value="10"/>
-      <Setter Property="Background" Value="#22252e"/>
-      <Setter Property="Foreground" Value="#889"/>
-      <Setter Property="BorderBrush" Value="#333844"/>
-      <Setter Property="CornerRadius" Value="3"/>
-    </Style>
-    <Style Selector="Button.export">
-      <Setter Property="FontSize" Value="11"/>
-      <Setter Property="Padding" Value="5"/>
-      <Setter Property="CornerRadius" Value="4"/>
-    </Style>
-  </Window.Styles>
 </Window>

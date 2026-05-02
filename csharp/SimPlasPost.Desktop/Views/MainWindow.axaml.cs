@@ -216,7 +216,30 @@ public partial class MainWindow : Window
             if (seen.Add(name)) toLoad.Add(name);
         }
 
-        if (!string.IsNullOrWhiteSpace(parsed.GeoFile)) AddFile(parsed.GeoFile);
+        if (!string.IsNullOrWhiteSpace(parsed.GeoFile))
+        {
+            // Transient geometry: a `model: ... plateilarge.geo****` line means
+            // there's one geo file per step.  We only need a single mesh
+            // snapshot (the viewer doesn't animate moving meshes), so glob
+            // the directory and pick the first match in sorted order.
+            string geoFn = parsed.GeoFile;
+            if (geoFn.Contains('*'))
+            {
+                string escapedGeo = Regex.Escape(geoFn);
+                string patGeo = Regex.Replace(escapedGeo, @"(?:\\\*)+", @"\d+");
+                var rxGeo = new Regex("^" + patGeo + "$", RegexOptions.IgnoreCase);
+                string? firstGeo = Directory.EnumerateFiles(dir)
+                    .Select(p => Path.GetFileName(p))
+                    .Where(n => rxGeo.IsMatch(n))
+                    .OrderBy(n => n, StringComparer.Ordinal)
+                    .FirstOrDefault();
+                if (firstGeo != null) AddFile(firstGeo);
+            }
+            else
+            {
+                AddFile(geoFn);
+            }
+        }
 
         foreach (var v in parsed.Variables)
         {

@@ -80,18 +80,24 @@ public class MeshViewport : Panel
         }
         else
         {
-            // Arcball rotation, applied so the mesh rotates WITH the cursor
-            // (consistent with the 1:1 pan: drag right → the mesh's right
-            // face sweeps toward the viewer).  The arcball-delta maps its
-            // first point onto its second; we pass the CURRENT position as
-            // the first and the LAST position as the second so the
-            // resulting rotation is the inverse of "camera orbits with
-            // cursor", i.e. "mesh rotates with cursor".
-            double w = Bounds.Width, h = Bounds.Height, dim = Math.Min(w, h);
-            cam.Rot = CameraParams.Mul(CameraParams.ArcballDelta(
-                (2 * pos.X - w) / dim,         -(2 * pos.Y - h) / dim,
-                (2 * _lastMouse.X - w) / dim,  -(2 * _lastMouse.Y - h) / dim),
-                cam.Rot);
+            // Cursor-following rotation: the same 1:1 metric as pan.  At the
+            // camera distance, a horizontal cursor delta of dx pixels rotates
+            // the object so a surface point at distance Dist from the
+            // rotation axis moves dx pixels in screen space — i.e., it
+            // tracks the cursor like the panned object does.  The orthographic
+            // scale used in projection is height-driven (s = h/(2·Dist)),
+            // which gives θ ≈ 2·dx / h for the matching arc length.
+            //
+            // Drag right → object rotates around the camera-Up axis so its
+            // right side comes toward the viewer.  Drag down → object tips
+            // forward around the camera-Right axis so its top comes toward
+            // the viewer.  Both axes are screen-frame, so the delta matrix
+            // composes via premultiplication on cam.Rot.
+            double dx = pos.X - _lastMouse.X, dy = pos.Y - _lastMouse.Y;
+            double k = 2.0 / Math.Max(1.0, Bounds.Height);
+            var ry = CameraParams.RotAxis(0, 1, 0,  dx * k);
+            var rx = CameraParams.RotAxis(1, 0, 0, -dy * k);
+            cam.Rot = CameraParams.Mul(CameraParams.Mul(ry, rx), cam.Rot);
         }
         _lastMouse = pos;
         _vm.InvalidateScene();
