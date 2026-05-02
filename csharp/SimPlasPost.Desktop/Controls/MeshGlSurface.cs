@@ -61,6 +61,19 @@ public class MeshGlSurface : OpenGlControlBase
     // straight into the GPU buffers without re-extraction every frame).
     private int[] _barNodes = Array.Empty<int>();
     private int[] _pointNodes = Array.Empty<int>();
+    // Pre-triangulated face mesh as a flat soup (3 vertex slots per
+    // triangle).  Each slot stores (a) the source node index, used at
+    // projection time to look up the on-screen position from _sx/_sy/_sz,
+    // and (b) an RGB colour byte triple, baked at RebuildGeometry time.
+    // For per-NODE fields the colour comes from the node's field value
+    // (so adjacent face copies of a shared vertex agree → smooth shading);
+    // for per-ELEMENT fields it comes from the owning element's value
+    // (so adjacent faces from different elements have different colours
+    // → sharp element-boundary steps, matching FE-viewer convention).
+    private int[] _triNode = Array.Empty<int>();
+    private byte[] _triR = Array.Empty<byte>();
+    private byte[] _triG = Array.Empty<byte>();
+    private byte[] _triB = Array.Empty<byte>();
 
     private float[] _sx = Array.Empty<float>();
     private float[] _sy = Array.Empty<float>();
@@ -228,13 +241,22 @@ public class MeshGlSurface : OpenGlControlBase
         }
 
         bool is3D = mesh.Dim == 3 || mesh.Elements.Any(e => FaceTable.Faces.TryGetValue(e.Type, out var ft) && ft.Dim == 3);
-        var bfaces = BoundaryExtractor.Extract(mesh.Elements, is3D);
+        var bfacesSrc = BoundaryExtractor.ExtractWithSource(mesh.Elements, is3D);
+        var bfaces = bfacesSrc.Select(t => t.Face).ToList();
 
-        double[]? fv = null; double fmin = 0, fmax = 1;
+        // Resolve the active scalar field, distinguishing per-node vs
+        // per-element addressing.  fv stays as a flat double[] in either
+        // case (per-node => indexed by node, per-element => indexed by
+        // element); the consumer checks isPerElement to know how to
+        // look up a value for a given vertex.
+        double[]? fv = null;
+        bool isPerElement = false;
+        double fmin = 0, fmax = 1;
         if (dMode != DisplayMode.Wireframe && !string.IsNullOrEmpty(_vm.ActiveField) &&
             mesh.Fields.TryGetValue(_vm.ActiveField, out var field) && !field.IsVector)
         {
             fv = field.ScalarValues;
+            isPerElement = field.IsPerElement;
             if (fv != null && fv.Length > 0)
             {
                 fmin = double.MaxValue; fmax = double.MinValue;
@@ -247,12 +269,22 @@ public class MeshGlSurface : OpenGlControlBase
         double efSpan = Math.Abs(efMax - efMin) < 1e-15 ? 1 : efMax - efMin;
         _vm.FRangeMin = fmin; _vm.FRangeMax = fmax;
 
+        // For per-element fields, contour iso-lines collapse (the field is
+        // constant inside each element), so the user's Lines mode degrades
+        // to Plot semantics for face-coloring and edge-drawing.  Wireframe
+        // is unchanged.
+        DisplayMode effectiveMode = (isPerElement && dMode == DisplayMode.Lines)
+            ? DisplayMode.Plot
+            : dMode;
+
+        // Per-NODE colour table: used by Bar2/Point1 elements (which always
+        // colour by node) and by the smooth-shading path for per-node fields.
         var vr = new byte[_nVerts]; var vg = new byte[_nVerts]; var vb = new byte[_nVerts];
-        bool whiteFaces = dMode == DisplayMode.Wireframe || dMode == DisplayMode.Lines;
+        bool whiteFaces = effectiveMode == DisplayMode.Wireframe || effectiveMode == DisplayMode.Lines;
         for (int i = 0; i < _nVerts; i++)
         {
             if (whiteFaces) { vr[i] = 255; vg[i] = 255; vb[i] = 255; }
-            else if (fv != null && i < fv.Length)
+            else if (fv != null && !isPerElement && i < fv.Length)
             {
                 double t = (fv[i] - efMin) / efSpan;
                 var (r, g, b) = TurboColormap.Sample(t);
@@ -271,14 +303,56 @@ public class MeshGlSurface : OpenGlControlBase
             var face = bfaces[fi];
             offsets[fi] = vi;
             for (int j = 0; j < face.Length; j++) verts[vi++] = face[j];
-            showEdges[fi] = dMode == DisplayMode.Wireframe || dMode == DisplayMode.Plot;
+            showEdges[fi] = effectiveMode == DisplayMode.Wireframe || effectiveMode == DisplayMode.Plot;
         }
         offsets[bfaces.Count] = vi;
         _faceOffsets = offsets; _faceVertices = verts;
         _vertR = vr; _vertG = vg; _vertB = vb;
         _drawEdges = showEdges;
 
-        if (dMode == DisplayMode.Lines)
+        // Build the per-tri-vertex triangle soup used for filled face
+        // rendering.  Each face is fan-triangulated; for per-NODE colouring
+        // each vertex slot gets the colour of its node, for per-ELEMENT
+        // colouring all three slots of every triangle in this face get the
+        // colour of the owning element (so adjacent elements with different
+        // values produce a sharp colour step at their shared edge).
+        int triCount = 0;
+        for (int fi = 0; fi < bfaces.Count; fi++)
+        {
+            int n = bfaces[fi].Length;
+            if (n >= 3) triCount += n - 2;
+        }
+        _triNode = new int[triCount * 3];
+        _triR = new byte[triCount * 3];
+        _triG = new byte[triCount * 3];
+        _triB = new byte[triCount * 3];
+        int triIdx = 0;
+        for (int fi = 0; fi < bfaces.Count; fi++)
+        {
+            var face = bfaces[fi];
+            int n = face.Length;
+            if (n < 3) continue;
+            int elemIdx = bfacesSrc[fi].ElementIndex;
+
+            byte er = 0, eg = 0, eb = 0;
+            bool useElemColor = isPerElement && fv != null && elemIdx >= 0 && elemIdx < fv.Length;
+            if (useElemColor)
+            {
+                double t = (fv![elemIdx] - efMin) / efSpan;
+                var (r, g, b) = TurboColormap.Sample(t);
+                er = (byte)(r * 255); eg = (byte)(g * 255); eb = (byte)(b * 255);
+            }
+
+            for (int t = 1; t < n - 1; t++)
+            {
+                int n0 = face[0], n1 = face[t], n2 = face[t + 1];
+                Slot(triIdx++, n0, useElemColor, er, eg, eb, vr, vg, vb);
+                Slot(triIdx++, n1, useElemColor, er, eg, eb, vr, vg, vb);
+                Slot(triIdx++, n2, useElemColor, er, eg, eb, vr, vg, vb);
+            }
+        }
+
+        if (effectiveMode == DisplayMode.Lines)
         {
             var dp = new double[_nVerts][];
             for (int i = 0; i < _nVerts; i++)
@@ -364,7 +438,16 @@ public class MeshGlSurface : OpenGlControlBase
             _sz[i] = rx * frx + ry * fry + rz * frz;
         }
 
-        _renderer.UploadMesh(_sx, _sy, _sz, _vertR, _vertG, _vertB, _faceOffsets, _faceVertices);
+        // Build the per-frame triangle soup: each triangle's 3 vertex slots
+        // come from the pre-baked _triNode + _triR/G/B arrays, looking up
+        // current screen positions from the per-node projection results.
+        var triVerts = new GlVertex[_triNode.Length];
+        for (int i = 0; i < _triNode.Length; i++)
+        {
+            int n = _triNode[i];
+            triVerts[i] = new GlVertex(_sx[n], _sy[n], _sz[n], _triR[i], _triG[i], _triB[i]);
+        }
+        _renderer.UploadMesh(triVerts);
         _renderer.UploadEdges(_sx, _sy, _sz, _faceOffsets, _faceVertices, _drawEdges, 0x22, 0x22, 0x22);
 
         var feat = ProjectWorldSegments(_featEdgePos, ex, ey, ez, rrx, rry, rrz, urx, ury, urz, frx, fry, frz, scale, hw, hh);
@@ -392,6 +475,22 @@ public class MeshGlSurface : OpenGlControlBase
         // shading; positions come from the projected _sx/_sy/_sz too.
         _renderer.UploadBars(_sx, _sy, _sz, _vertR, _vertG, _vertB, _barNodes);
         _renderer.UploadPoints(_sx, _sy, _sz, _vertR, _vertG, _vertB, _pointNodes);
+    }
+
+    /// <summary>
+    /// Fill one slot of the triangle-soup arrays at index <paramref name="slot"/>:
+    /// stores the source node index (used at projection time) plus an RGB
+    /// triple — either the owning element's colour (when <paramref name="useElem"/>
+    /// is true, for per-element fields) or the node's colour from the
+    /// per-node colour table (otherwise, for per-node fields).
+    /// </summary>
+    private void Slot(int slot, int node, bool useElem,
+        byte er, byte eg, byte eb,
+        byte[] vr, byte[] vg, byte[] vb)
+    {
+        _triNode[slot] = node;
+        if (useElem) { _triR[slot] = er; _triG[slot] = eg; _triB[slot] = eb; }
+        else         { _triR[slot] = vr[node]; _triG[slot] = vg[node]; _triB[slot] = vb[node]; }
     }
 
     private static float[] ProjectWorldSegments(

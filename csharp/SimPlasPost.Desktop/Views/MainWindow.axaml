@@ -18,6 +18,7 @@
         <Button x:Name="BtnDemo6" Content="House (Hex+Wedge)" Click="OnDemoClick" Tag="6" Classes="demo"/>
         <Button x:Name="BtnDemo7" Content="Toblerone (Tet+Wedge)" Click="OnDemoClick" Tag="7" Classes="demo"/>
         <Button x:Name="BtnDemo8" Content="All Element Types" Click="OnDemoClick" Tag="8" Classes="demo"/>
+        <Button x:Name="BtnDemo9" Content="Per-Element Field" Click="OnDemoClick" Tag="9" Classes="demo"/>
       </StackPanel>
     </Border>
 

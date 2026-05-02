@@ -4,9 +4,14 @@ public class ProjectedFace
 {
     public double[][] ScreenPts { get; set; } = Array.Empty<double[]>(); // [ptIndex] => [x, y]
     public double[][] Pts3D { get; set; } = Array.Empty<double[]>();     // [ptIndex] => [x, y, z]
-    public double R { get; set; }
-    public double G { get; set; }
-    public double B { get; set; }
+    // Per-vertex colors (one entry per ScreenPts vertex).  The PDF exporter
+    // uses these to drive Type 4 Gouraud shading so the page matches the
+    // node-wise interpolation the on-screen renderer already does.  When
+    // the scene has no active field, all entries hold the same neutral
+    // colour and the shading degenerates to a flat fill.
+    public double[] R { get; set; } = Array.Empty<double>();
+    public double[] G { get; set; } = Array.Empty<double>();
+    public double[] B { get; set; } = Array.Empty<double>();
     public double Depth { get; set; }
 }
 

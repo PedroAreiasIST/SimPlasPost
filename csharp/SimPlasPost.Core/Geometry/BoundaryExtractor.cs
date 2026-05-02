@@ -67,6 +67,67 @@ public static class BoundaryExtractor
     }
 
     /// <summary>
+    /// Like <see cref="Extract"/>, but additionally returns the index of the
+    /// element each boundary face came from.  Required for per-element
+    /// shading: when colour comes from element values rather than node
+    /// values, the renderer needs to look up the owning element so its
+    /// value can be baked into the face's per-vertex colours.
+    ///
+    /// Element indices are positions into the input <paramref name="elements"/>
+    /// list.  Stand-alone 2D elements (Tri3/Quad4 in a 3D mesh) carry the
+    /// 2D element's own index, since the face IS the element.
+    /// </summary>
+    public static List<(int[] Face, int ElementIndex)> ExtractWithSource(List<Element> elements, bool is3D)
+    {
+        if (!is3D)
+        {
+            var faces = new List<(int[], int)>();
+            for (int e = 0; e < elements.Count; e++)
+            {
+                var el = elements[e];
+                if (!FaceTable.Faces.TryGetValue(el.Type, out var ft)) continue;
+                if (ft.Dim < 2) continue;
+                foreach (var f in ft.GetFaces(el.Conn))
+                    faces.Add((f, e));
+            }
+            return faces;
+        }
+
+        var faceCount = new Dictionary<string, int>();
+        var faceList = new List<(string Key, int[] Face, int Elem)>();
+        var standalone = new List<(int[] Face, int Elem)>();
+
+        for (int e = 0; e < elements.Count; e++)
+        {
+            var el = elements[e];
+            if (!FaceTable.Faces.TryGetValue(el.Type, out var ft)) continue;
+            if (ft.Dim == 2)
+            {
+                foreach (var f in ft.GetFaces(el.Conn))
+                    standalone.Add((f, e));
+            }
+            else if (ft.Dim == 3)
+            {
+                foreach (var f in ft.GetFaces(el.Conn))
+                {
+                    var sorted = (int[])f.Clone();
+                    Array.Sort(sorted);
+                    var key = string.Join(",", sorted);
+                    faceCount[key] = faceCount.GetValueOrDefault(key, 0) + 1;
+                    faceList.Add((key, f, e));
+                }
+            }
+        }
+
+        var result = faceList
+            .Where(t => faceCount[t.Key] == 1)
+            .Select(t => (t.Face, t.Elem))
+            .ToList();
+        result.AddRange(standalone);
+        return result;
+    }
+
+    /// <summary>
     /// Collect the connectivity of every element whose face-table dimension
     /// matches <paramref name="dim"/>.  Used to extract Point1 (Dim=0) and
     /// Bar2 (Dim=1) elements separately from the surface mesh: those are
