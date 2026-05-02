@@ -27,6 +27,15 @@ public class FieldData
 {
     public string Name { get; set; } = "";
     public bool IsVector { get; set; }
+    /// <summary>
+    /// When true, <see cref="ScalarValues"/> is indexed by element rather
+    /// than by node — typical for FE quantities computed per-element such
+    /// as element-averaged stress, density, or material assignments.  The
+    /// renderer/exporter then drives flat per-element shading (each face's
+    /// vertices carry the owning element's value), which matches the
+    /// convention used by Paraview / Tecplot / Ensight.
+    /// </summary>
+    public bool IsPerElement { get; set; }
     public double[]? ScalarValues { get; set; }
     public double[][]? VectorValues { get; set; } // [nodeIndex] => [x, y, z]
 

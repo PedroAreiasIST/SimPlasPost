@@ -57,12 +57,17 @@ public static class SceneBuilder
             };
         }
 
-        // Field values and range
+        // Field values and range.  Both per-node and per-element scalar
+        // fields share the ScalarValues storage; the consumer checks the
+        // IsPerElement flag to know whether to look the value up by face
+        // node index or by source element index.
         double[]? fv = null;
+        bool isPerElement = false;
         double fmin = 0, fmax = 1;
         if (!string.IsNullOrEmpty(activeField) && meshData.Fields.TryGetValue(activeField, out var field) && !field.IsVector)
         {
             fv = field.ScalarValues;
+            isPerElement = field.IsPerElement;
             if (fv != null && fv.Length > 0)
             {
                 fmin = double.MaxValue; fmax = double.MinValue;
@@ -75,15 +80,24 @@ public static class SceneBuilder
         double efMax = eMaxOverride ?? fmax;
         double efSpan = Math.Abs(efMax - efMin) < 1e-15 ? 1 : efMax - efMin;
 
-        var bfaces = BoundaryExtractor.Extract(meshData.Elements, is3D);
+        // Lines mode collapses to Plot for per-element fields (iso-lines
+        // can't usefully sample a piecewise-constant-per-element field).
+        DisplayMode effectiveMode = (isPerElement && dMode == DisplayMode.Lines)
+            ? DisplayMode.Plot
+            : dMode;
+
+        var bfacesSrc = BoundaryExtractor.ExtractWithSource(meshData.Elements, is3D);
+        var bfaces = bfacesSrc.Select(t => t.Face).ToList();
         var cam = Camera.Build(camParams);
         double orthoHH = camParams.Dist;
 
         var exportFaces = new List<ProjectedFace>();
         var wireEdges3D = new List<(double[] a, double[] b)>();
 
-        foreach (var face in bfaces)
+        for (int fi = 0; fi < bfaces.Count; fi++)
         {
+            var face = bfaces[fi];
+            int elemIdx = bfacesSrc[fi].ElementIndex;
             var pts = new double[face.Length][];
             for (int i = 0; i < face.Length; i++)
                 pts[i] = Camera.Project(dp[face[i]], cam, orthoHH, w, h);
@@ -92,16 +106,25 @@ public static class SceneBuilder
             var pts3D = pts.Select(p => new[] { p[0], p[1], p[2] }).ToArray();
             double avgZ = pts.Average(p => p[2]);
 
-            // Per-vertex colors so the PDF exporter can run Type 4 Gouraud
-            // shading and match the on-screen smooth interpolation.
+            // Per-vertex colours that drive the PDF Type 4 Gouraud shader.
+            // For per-element fields every vertex of a face gets the same
+            // colour (the owning element's), so the shading degenerates to
+            // a flat fill bounded by element edges — sharp seams between
+            // adjacent elements with different values.
             var rArr = new double[face.Length];
             var gArr = new double[face.Length];
             var bArr = new double[face.Length];
-            if (dMode == DisplayMode.Wireframe)
+            if (effectiveMode == DisplayMode.Wireframe)
             {
                 for (int j = 0; j < face.Length; j++) { rArr[j] = 1; gArr[j] = 1; bArr[j] = 1; }
             }
-            else if (fv != null)
+            else if (fv != null && isPerElement && elemIdx >= 0 && elemIdx < fv.Length)
+            {
+                double t = (fv[elemIdx] - efMin) / efSpan;
+                var (cr, cg, cb) = TurboColormap.Sample(t);
+                for (int j = 0; j < face.Length; j++) { rArr[j] = cr; gArr[j] = cg; bArr[j] = cb; }
+            }
+            else if (fv != null && !isPerElement)
             {
                 for (int j = 0; j < face.Length; j++)
                 {
@@ -121,7 +144,7 @@ public static class SceneBuilder
                 R = rArr, G = gArr, B = bArr, Depth = avgZ,
             });
 
-            if (dMode == DisplayMode.Wireframe || dMode == DisplayMode.Plot)
+            if (effectiveMode == DisplayMode.Wireframe || effectiveMode == DisplayMode.Plot)
             {
                 for (int j = 0; j < pts.Length; j++)
                     wireEdges3D.Add((pts[j], pts[(j + 1) % pts.Length]));
@@ -135,7 +158,7 @@ public static class SceneBuilder
         var visibleEdges = new List<ProjectedEdge>();
 
         // Wireframe/plot edges
-        if (dMode == DisplayMode.Wireframe || dMode == DisplayMode.Plot)
+        if (effectiveMode == DisplayMode.Wireframe || effectiveMode == DisplayMode.Plot)
         {
             foreach (var (a, b) in wireEdges3D)
             {
@@ -145,7 +168,7 @@ public static class SceneBuilder
         }
 
         // Feature edges for contour-lines mode
-        if (dMode == DisplayMode.Lines)
+        if (effectiveMode == DisplayMode.Lines)
         {
             var featPos = FeatureEdgeDetector.Extract(bfaces, dp);
             for (int k = 0; k < featPos.Length; k += 6)
@@ -161,7 +184,7 @@ public static class SceneBuilder
 
         // Contour iso-lines
         var contours = new List<ProjectedContour>();
-        if (dMode == DisplayMode.Lines && fv != null)
+        if (effectiveMode == DisplayMode.Lines && fv != null && !isPerElement)
         {
             var rawSegs = ContourGenerator.ComputeSegments(bfaces, dp, fv, efMin, efMax, contourN);
             var smoothed = ContourGenerator.Smooth(rawSegs, 2);
@@ -184,7 +207,7 @@ public static class SceneBuilder
 
         // Lines mode: faces should be white so the iso-lines and silhouette
         // edges carry all the colour information.  Reset every vertex slot.
-        if (dMode == DisplayMode.Lines)
+        if (effectiveMode == DisplayMode.Lines)
         {
             foreach (var f in exportFaces)
             {

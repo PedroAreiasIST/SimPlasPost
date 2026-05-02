@@ -198,44 +198,28 @@ void main() { frag = v_col; }";
     }
 
     /// <summary>
-    /// Upload triangulated mesh faces (already projected to screen) plus
-    /// per-vertex colors. Faces are fan-triangulated.
+    /// Upload a flat triangle-soup VBO (3 consecutive vertices per triangle,
+    /// no index buffer).  Adjacent faces don't share vertices, so the caller
+    /// can attach distinct per-vertex colours to each triangle — that's
+    /// exactly what enables per-element flat shading: every face's vertices
+    /// carry the owning element's colour, and where two elements meet you
+    /// get a clean colour step instead of a shared-vertex blend.
+    ///
+    /// For per-node fields the caller still writes the same colour at
+    /// shared positions in every neighbouring face, so the GPU's per-fragment
+    /// colour interpolation produces the same smooth Gouraud result as the
+    /// previous indexed pipeline.
     /// </summary>
-    public void UploadMesh(
-        ReadOnlySpan<float> sx, ReadOnlySpan<float> sy, ReadOnlySpan<float> sz,
-        ReadOnlySpan<byte> vR, ReadOnlySpan<byte> vG, ReadOnlySpan<byte> vB,
-        int[] faceOffsets, int[] faceVertices)
+    public void UploadMesh(ReadOnlySpan<GlVertex> triangleVerts)
     {
-        int nVerts = sx.Length;
-        var verts = new GlVertex[nVerts];
-        for (int i = 0; i < nVerts; i++)
-            verts[i] = new GlVertex(sx[i], sy[i], sz[i], vR[i], vG[i], vB[i]);
-
-        int nFaces = faceOffsets.Length - 1;
-        int triCount = 0;
-        for (int f = 0; f < nFaces; f++)
-        {
-            int nv = faceOffsets[f + 1] - faceOffsets[f];
-            if (nv >= 3) triCount += nv - 2;
-        }
-        var indices = new uint[triCount * 3];
-        int wi = 0;
-        for (int f = 0; f < nFaces; f++)
-        {
-            int s = faceOffsets[f], e = faceOffsets[f + 1], nv = e - s;
-            if (nv < 3) continue;
-            uint v0 = (uint)faceVertices[s];
-            for (int t = 1; t < nv - 1; t++)
-            {
-                indices[wi++] = v0;
-                indices[wi++] = (uint)faceVertices[s + t];
-                indices[wi++] = (uint)faceVertices[s + t + 1];
-            }
-        }
-
-        UploadBuffer(ref _meshVbo, ref _meshVboSize, GlBindings.GL_ARRAY_BUFFER, verts);
-        UploadBuffer(ref _meshIbo, ref _meshIboSize, GlBindings.GL_ELEMENT_ARRAY_BUFFER, indices);
-        _meshIndexCount = indices.Length;
+        if (triangleVerts.Length == 0) { _meshIndexCount = 0; return; }
+        var arr = triangleVerts.ToArray();
+        UploadBuffer(ref _meshVbo, ref _meshVboSize, GlBindings.GL_ARRAY_BUFFER, arr);
+        // We reuse _meshIndexCount as the count of vertices to draw with
+        // glDrawArrays; the IBO is unused now (left dangling for a possible
+        // future indexed path).  Use the suffix-free name so callers don't
+        // have to know the implementation detail.
+        _meshIndexCount = arr.Length;
     }
 
     public void UploadEdges(
@@ -372,13 +356,12 @@ void main() { frag = v_col; }";
         // Default to 1 for everything except the explicit GL_POINTS pass.
         if (_locPointSize >= 0) _gl.Uniform1f(_locPointSize, 1f);
 
-        if (drawFill && _meshVbo != 0 && _meshIbo != 0 && _meshIndexCount > 0)
+        if (drawFill && _meshVbo != 0 && _meshIndexCount > 0)
         {
             BindAttribs(_meshVbo);
-            _gl.BindBuffer(GlBindings.GL_ELEMENT_ARRAY_BUFFER, _meshIbo);
-            _gl.DrawElements(GlBindings.GL_TRIANGLES, _meshIndexCount, GlBindings.GL_UNSIGNED_INT, IntPtr.Zero);
+            _gl.DrawArrays(GlBindings.GL_TRIANGLES, 0, _meshIndexCount);
             err = _gl.GetError();
-            if (err != GlBindings.GL_NO_ERROR) log?.Invoke($"GL error after DrawElements (mesh, {_meshIndexCount} idx): 0x{err:X}");
+            if (err != GlBindings.GL_NO_ERROR) log?.Invoke($"GL error after DrawArrays (mesh, {_meshIndexCount} verts): 0x{err:X}");
         }
 
         if (_edgeVbo != 0 && _edgeVertexCount > 0)

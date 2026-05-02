@@ -188,7 +188,77 @@ public static class DemoMeshGenerator
         GenHouseHexWedge(),
         GenToblerone(),
         GenAllElementsShowcase(),
+        GenPerElementBeam(),
     };
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Demo of a per-element (real-valued) scalar field: a hex-meshed beam
+    // where each element carries a value of its own, evaluated at the
+    // element centroid.  Field values vary smoothly with position so
+    // neighbouring cells have similar (but distinct) values; the renderer
+    // and the PDF exporter both use sharp per-element shading, so the
+    // element boundaries appear as crisp colour steps — exactly how
+    // Paraview / Tecplot display element-based variables.
+    // ─────────────────────────────────────────────────────────────────────
+    public static MeshData GenPerElementBeam()
+    {
+        int nx = 24, ny = 6, nz = 4;
+        double Lx = 2.4, Ly = 0.6, Lz = 0.5;
+        var nodes = new List<double[]>();
+        for (int k = 0; k <= nz; k++)
+        for (int j = 0; j <= ny; j++)
+        for (int i = 0; i <= nx; i++)
+            nodes.Add(new[] { (i / (double)nx) * Lx, (j / (double)ny) * Ly - Ly / 2, (k / (double)nz) * Lz - Lz / 2 });
+
+        int Id(int i, int j, int k) => k * (ny + 1) * (nx + 1) + j * (nx + 1) + i;
+
+        var elements = new List<Element>();
+        for (int k = 0; k < nz; k++)
+        for (int j = 0; j < ny; j++)
+        for (int i = 0; i < nx; i++)
+        {
+            elements.Add(new Element
+            {
+                Type = ElementType.Hex8,
+                Conn = new[]
+                {
+                    Id(i, j, k), Id(i + 1, j, k), Id(i + 1, j + 1, k), Id(i, j + 1, k),
+                    Id(i, j, k + 1), Id(i + 1, j, k + 1), Id(i + 1, j + 1, k + 1), Id(i, j + 1, k + 1),
+                },
+            });
+        }
+
+        // Per-element scalar: an "element-averaged stress" stand-in.
+        // Sampling at the element centroid means neighbouring cells get
+        // close-but-different values — the resulting visualisation shows
+        // the field's shape as a stepped piecewise-constant surface, with
+        // sharp colour seams at every element boundary.
+        var elemValues = new double[elements.Count];
+        for (int e = 0; e < elements.Count; e++)
+        {
+            double cx = 0, cy = 0;
+            foreach (int n in elements[e].Conn) { cx += nodes[n][0]; cy += nodes[n][1]; }
+            cx /= elements[e].Conn.Length;
+            cy /= elements[e].Conn.Length;
+            elemValues[e] = Math.Sin(2.5 * cx / Lx * Math.PI) * Math.Cos(2 * cy / Ly * Math.PI) + 0.5 * cx / Lx;
+        }
+
+        return new MeshData
+        {
+            Name = "Per-Element Beam (Hex8, element scalar)", Dim = 3,
+            Nodes = nodes.ToArray(), Elements = elements,
+            Fields =
+            {
+                ["Element Stress"] = new FieldData
+                {
+                    Name = "Element Stress",
+                    IsVector = false,
+                    IsPerElement = true,
+                    ScalarValues = elemValues,
+                },
+            },
+        };
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // Showcase: a single mesh that contains one element of every type the
