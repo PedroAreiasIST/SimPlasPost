@@ -145,11 +145,14 @@ public class MeshGlSurface : OpenGlControlBase
     private int _frameCount;
     protected override void OnOpenGlRender(GlInterface gl, int fb)
     {
+        // Avalonia invokes this from a native callback.  An exception that
+        // unwinds out of here can land the runtime in FailFast (exit 134
+        // on Linux), so we log and swallow instead of rethrowing — losing
+        // a frame is better than killing the app.
         try { RenderInner(fb); }
         catch (Exception ex)
         {
             Diag.Log("OnOpenGlRender threw: " + ex);
-            throw;
         }
     }
 
