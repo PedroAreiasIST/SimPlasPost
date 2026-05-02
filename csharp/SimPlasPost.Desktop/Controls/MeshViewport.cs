@@ -80,22 +80,18 @@ public class MeshViewport : Panel
         }
         else
         {
-            // Cursor-following rotation: the same 1:1 metric as pan.  At the
-            // camera distance, a horizontal cursor delta of dx pixels rotates
-            // the object so a surface point at distance Dist from the
-            // rotation axis moves dx pixels in screen space — i.e., it
-            // tracks the cursor like the panned object does.  The orthographic
-            // scale used in projection is height-driven (s = h/(2·Dist)),
-            // which gives θ ≈ 2·dx / h for the matching arc length.
+            // Cursor-following rotation: same 1:1 metric as pan.  The
+            // orthographic projection scale is height-driven (s = h/(2·Dist)),
+            // so θ ≈ 2·dx / h matches the panned object's screen velocity.
             //
-            // Drag right → object rotates around the camera-Up axis so its
-            // right side comes toward the viewer.  Drag down → object tips
-            // forward around the camera-Right axis so its top comes toward
-            // the viewer.  Both axes are screen-frame, so the delta matrix
-            // composes via premultiplication on cam.Rot.
+            // Drag right → object follows the cursor right (camera tilts left
+            // around its Up axis).  Drag down → object follows the cursor down
+            // (camera tilts up around its Right axis).  Both deltas have the
+            // same screen-frame sign as pan; if either is flipped, the
+            // rotation feels inverted relative to a panned object.
             double dx = pos.X - _lastMouse.X, dy = pos.Y - _lastMouse.Y;
             double k = 2.0 / Math.Max(1.0, Bounds.Height);
-            var ry = CameraParams.RotAxis(0, 1, 0,  dx * k);
+            var ry = CameraParams.RotAxis(0, 1, 0, -dx * k);
             var rx = CameraParams.RotAxis(1, 0, 0, -dy * k);
             cam.Rot = CameraParams.Mul(CameraParams.Mul(ry, rx), cam.Rot);
         }
