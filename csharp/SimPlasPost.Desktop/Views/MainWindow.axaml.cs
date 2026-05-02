@@ -19,6 +19,7 @@ public partial class MainWindow : Window
         Diag.Log("MainWindow ctor: InitializeComponent...");
         InitializeComponent();
         Diag.Log("MainWindow ctor: InitializeComponent done");
+        SizeToScreenFraction(0.6);
         DataContext = _vm;
         Diag.Log("MainWindow ctor: Viewport.SetViewModel...");
         Viewport.SetViewModel(_vm);
@@ -458,4 +459,20 @@ public partial class MainWindow : Window
 
     private string GetMeshBaseName() =>
         Path.GetFileNameWithoutExtension(_vm.MeshData?.Name ?? "mesh");
+
+    /// <summary>
+    /// Size the window to <paramref name="fraction"/> of the primary screen's
+    /// working area (the screen excluding the taskbar/dock), and centre it.
+    /// Avalonia's Window.Width/Height are in DIPs, but Screen.WorkingArea is
+    /// in physical pixels — divide by Screen.Scaling to convert.
+    /// </summary>
+    private void SizeToScreenFraction(double fraction)
+    {
+        var screen = Screens.Primary;
+        if (screen == null) return;
+        double scaling = screen.Scaling > 0 ? screen.Scaling : 1.0;
+        Width  = screen.WorkingArea.Width  / scaling * fraction;
+        Height = screen.WorkingArea.Height / scaling * fraction;
+        WindowStartupLocation = WindowStartupLocation.CenterScreen;
+    }
 }
