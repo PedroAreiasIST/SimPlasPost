@@ -1,82 +1,82 @@
 # Demo mesh provenance & licensing
 
 The post-processor itself (and all source code in this repository) is
-licensed under the **GNU General Public License v3.0 or later** (GPLv3+).
+licensed under the **GNU General Public License v3.0 or later (GPLv3+)**.
 See `COPYING` / the per-file headers for the canonical text.
 
-This document covers the **demo data** the application ships with so users
-can immediately exercise the renderer without loading their own mesh.
+This document covers the **demo data** that ships with the application
+so users can immediately exercise the renderer without loading their own
+mesh.
 
 ---
 
-## Procedurally generated demos (all of them, currently)
+## Procedurally generated FE demos
 
-Every demo currently shipped is **procedurally generated in C#** at
-runtime — no external data file is bundled in this commit.  The two
-generator files are:
+Eight FE demos in `Demos/DemoMeshGenerator.cs` are generated
+analytically in C#:
 
-* `csharp/SimPlasPost.Core/Demos/DemoMeshGenerator.cs`
-  — small canonical FE meshes (plate-with-hole, beams, mixed
-  Tri/Quad/Tet/Hex/Wedge, all-element-types showcase, per-element
-  field demo).
-* `csharp/SimPlasPost.Core/Demos/HighEndMeshGenerator.cs`
-  — ten high-vertex-count parametric surfaces from classical
-  differential geometry (geodesic sphere, torus, trefoil knot,
-  Möbius strip, Klein bottle, helicoid, catenoid, Boy's surface,
-  spherical-harmonic Y₄₂ blob, double-helix tube + bars).
-
-Because these meshes are **mathematical functions evaluated in source
-code**, no third-party licence applies to the data itself; they inherit
-the **GPLv3+** licence of the source.
-
-The mathematical objects they represent (Möbius strip, Klein bottle,
-trefoil knot, etc.) are part of the public-domain heritage of geometry
-and carry no IP encumbrance.
-
----
-
-## Loading real classical meshes (Bunny, Buddha, Armadillo, …)
-
-This commit also adds an OBJ parser
-(`csharp/SimPlasPost.Core/Parsers/ObjParser.cs`) that loads any
-Wavefront `.obj` file the user provides via the existing **JSON mesh**
-file picker (with a small wrapper) or by invoking
-`ObjParser.Parse(text)` programmatically.
-
-If you want to ship real datasets like the **Stanford 3D Scanning
-Repository** meshes (Bunny, Happy Buddha, Dragon, Armadillo, Lucy,
-XYZ RGB Statuette, Asian Dragon, Thai Statue, …), each carries its own
-licence; the table below summarises the typical terms.  **You must read
-and comply with the original licence before redistribution.**
-
-| Dataset | Source | Licence (summary — NOT legal advice) |
+| Name | Element types | Source |
 |---|---|---|
-| Stanford Bunny | Stanford 3D Scanning Repository | Free for any purpose, attribution requested |
-| Happy Buddha | Stanford 3D Scanning Repository | Free, with attribution; cite Stanford |
-| Dragon | Stanford 3D Scanning Repository | Free, with attribution; cite Stanford |
-| Armadillo | Stanford 3D Scanning Repository | Free, with attribution; cite Stanford |
-| Lucy | Stanford 3D Scanning Repository | Free, with attribution; cite Stanford and Carnegie Mellon |
-| XYZ RGB Asian Dragon / Statuette / Thai Statue | XYZ RGB Inc. (via Stanford repo) | Free for **non-commercial** use only; written permission required for commercial use |
-| Utah Teapot | Martin Newell, U. of Utah, 1975 | Effectively public domain |
-| Spot the Cow | Keenan Crane | CC0 — public domain dedication |
-| Stanford Lounge / Cornell Box geometry | Stanford / Cornell graphics labs | Educational use; cite source |
+| Plate with Hole | Quad4 | DemoMeshGenerator.GenPlateHole |
+| Mixed Patch | Tri3 + Quad4 | DemoMeshGenerator.GenMixedTriQuad |
+| Cantilever | Hex8 | DemoMeshGenerator.Gen3DBeam |
+| Tet Beam | Tet4 | DemoMeshGenerator.GenTetBox |
+| House | Hex8 + Penta6 | DemoMeshGenerator.GenHouseHexWedge |
+| Toblerone | Tet4 + Penta6 | DemoMeshGenerator.GenToblerone |
+| All Element Types | Point1 + Bar2 + Tri3 + Quad4 + Tet4 + Hex8 + Penta6 | DemoMeshGenerator.GenAllElementsShowcase |
+| Per-Element Beam | Hex8, per-element field | DemoMeshGenerator.GenPerElementBeam |
 
-The recommended attribution string for Stanford-repository meshes is:
-
-> Geometry from the Stanford 3D Scanning Repository,
-> http://graphics.stanford.edu/data/3Dscanrep/
+These inherit the source code's **GPLv3+** licence.
 
 ---
 
-## How to add a real mesh later
+## Embedded classical reference meshes
 
-1. Place the `.obj` file under `csharp/SimPlasPost.Core/Demos/Embedded/`.
-2. In the project file, mark it as
-   `<EmbeddedResource Include="Demos/Embedded/your-mesh.obj.gz" />`.
-3. Add a generator method in `HighEndMeshGenerator` (or a sibling class)
-   that loads the resource via
-   `Assembly.GetManifestResourceStream(...)` + `GZipStream` + a
-   `StreamReader`, calls `ObjParser.Parse(text, name)`, optionally adds
-   a synthetic scalar field, and returns the `MeshData`.
-4. Append it to `DemoMeshGenerator.AllDemos()`.
-5. Update **this file** with the dataset's source URL and licence.
+Ten classical 3D meshes are bundled as gzipped Wavefront `.obj` files
+under `Demos/Embedded/` and decompressed at runtime by
+`EmbeddedMeshLoader`.  All ten were mirrored from
+**Alec Jacobson's `common-3d-test-models` repository on GitHub**
+(<https://github.com/alecjacobson/common-3d-test-models>), which
+republishes them with their original licences intact for research /
+educational use.
+
+| File | Display name | Origin / author | Original licence |
+|---|---|---|---|
+| `stanford-bunny.obj.gz` | Stanford Bunny | Stanford 3D Scanning Repository (G. Turk, M. Levoy, 1994) | Free for research/non-commercial use; please cite Stanford 3D Scanning Repository, http://graphics.stanford.edu/data/3Dscanrep/ |
+| `happy.obj.gz` | Happy Buddha | Stanford 3D Scanning Repository (Stanford, 1996) | Same as Bunny — please cite Stanford |
+| `armadillo.obj.gz` | Stanford Armadillo | Stanford 3D Scanning Repository (B. Curless, M. Levoy, 1996) | Same as Bunny — please cite Stanford |
+| `nefertiti.obj.gz` | Nefertiti | scan by Berlin's Egyptian Museum, distributed via Cosmo Wenman / Nora Al-Badri & Jan Nikolai Nelles | Released under Creative Commons by the original scanners; 3D model widely redistributed |
+| `rocker-arm.obj.gz` | Rocker Arm | INRIA (commonly cited as "rocker arm" engine part) | Research-use mesh; AIM@SHAPE-style attribution requested |
+| `fandisk.obj.gz` | Fandisk | Hugues Hoppe et al., "Piecewise smooth surface reconstruction" (SIGGRAPH 1994) | Research-use; cite Hoppe et al. |
+| `cheburashka.obj.gz` | Cheburashka | community mesh, popularised by libigl tutorial | Public-domain / unrestricted use as far as can be determined |
+| `spot.obj.gz` | Spot the Cow | **Keenan Crane** (https://www.cs.cmu.edu/~kmcrane/Projects/ModelRepository/) | **CC0 — public domain dedication** |
+| `teapot.obj.gz` | Utah Teapot | **Martin Newell**, University of Utah, 1975 | Effectively **public domain** |
+| `suzanne.obj.gz` | Suzanne | the Blender Foundation's mascot mesh | **CC-0** (Blender Foundation public-domain mascot) |
+
+> ⚠ The Stanford 3D Scanning Repository licence asks that any
+> redistribution credit Stanford and (where applicable) the named
+> contributors.  This `LICENSES.md` constitutes that attribution; please
+> retain it when redistributing the binary.
+
+If you need to ship binaries to commercial customers and want to be
+extra careful, consider:
+
+* dropping `nefertiti.obj.gz` if you can't trace the licence chain,
+* or pruning down to just the CC0-licensed Spot + Suzanne and the
+  effectively-public-domain Utah Teapot.
+
+---
+
+## Loading additional real meshes
+
+`csharp/SimPlasPost.Core/Parsers/ObjParser.cs` accepts any reasonable
+Wavefront `.obj` file (positions + n-gon faces with optional `/vt/vn`).
+To add another classical dataset:
+
+1. Place the `.obj` file under `csharp/SimPlasPost.Core/Demos/Embedded/`,
+   then `gzip -9 -k yourmesh.obj` to produce `yourmesh.obj.gz`.
+2. The `.csproj`'s glob `<EmbeddedResource Include="Demos/Embedded/*.obj.gz" />`
+   already picks it up — no project edit needed.
+3. Add a `yield return Load("yourmesh.obj.gz", "Display Name");` line
+   to `EmbeddedMeshLoader.All()`.
+4. Update **this file** with the dataset's source URL and licence.
