@@ -439,6 +439,23 @@ public static class EnsightParser
         mesh.Name = caseFile;
         mesh.Dim = 3;
 
+        // Drop any element whose connectivity references a node index outside
+        // [0, Nodes.Length).  Out-of-range indices crash the renderer when it
+        // dereferences `nodes[conn[c]]`; this can happen if the geo file uses
+        // a layout we mis-detect or has a malformed line.  Better to silently
+        // discard the bad element than to abort the process at render time.
+        if (mesh.Nodes.Length > 0)
+        {
+            int n = mesh.Nodes.Length;
+            mesh.Elements = mesh.Elements
+                .Where(el => el.Conn != null && el.Conn.All(c => c >= 0 && c < n))
+                .ToList();
+        }
+        else
+        {
+            mesh.Elements.Clear();
+        }
+
         // Load variables — when the file pattern contains '*', every matching
         // file is loaded as a separate time step instead of just the last one.
         int maxSteps = 1;
