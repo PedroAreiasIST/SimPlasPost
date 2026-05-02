@@ -80,12 +80,12 @@ void main() { frag = v_col; }";
     // every frame in case Avalonia's compositor swaps it out.
     private uint _vao;
 
-    private uint _meshVbo, _meshIbo;
+    private uint _meshVbo;
     private uint _edgeVbo;
     private uint _segVbo;
     private uint _barVbo;
     private uint _pointVbo;
-    private int _meshVboSize, _meshIboSize, _edgeVboSize, _segVboSize, _barVboSize, _pointVboSize;
+    private int _meshVboSize, _edgeVboSize, _segVboSize, _barVboSize, _pointVboSize;
     private int _meshIndexCount;
     private int _edgeVertexCount;
     private int _segVertexCount;
@@ -433,7 +433,6 @@ void main() { frag = v_col; }";
     public void Dispose()
     {
         DeleteBuffer(ref _meshVbo);
-        DeleteBuffer(ref _meshIbo);
         DeleteBuffer(ref _edgeVbo);
         DeleteBuffer(ref _segVbo);
         DeleteBuffer(ref _barVbo);

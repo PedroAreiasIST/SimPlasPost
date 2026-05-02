@@ -274,6 +274,9 @@ public static class PdfExporter
         var buf = new byte[triCount * 3 * VertexBytes];
         int p = 0;
 
+        // Local copies of the bounds so the Vertex local function below can
+        // capture them — out parameters can't be captured directly.
+        double xMinL = xMin, yMinL = yMin;
         double xSpan = xMax - xMin; if (xSpan < 1e-12) xSpan = 1;
         double ySpan = yMax - yMin; if (ySpan < 1e-12) ySpan = 1;
 
@@ -281,8 +284,8 @@ public static class PdfExporter
         {
             // PDF y is bottom-up; our screen y is top-down.
             double pdfY = scene.H - y;
-            ushort xq = (ushort)Math.Round(Math.Clamp((x   - xMin) / xSpan, 0, 1) * 65535);
-            ushort yq = (ushort)Math.Round(Math.Clamp((pdfY - yMin) / ySpan, 0, 1) * 65535);
+            ushort xq = (ushort)Math.Round(Math.Clamp((x   - xMinL) / xSpan, 0, 1) * 65535);
+            ushort yq = (ushort)Math.Round(Math.Clamp((pdfY - yMinL) / ySpan, 0, 1) * 65535);
             byte rq = (byte)Math.Round(Math.Clamp(r, 0, 1) * 255);
             byte gq = (byte)Math.Round(Math.Clamp(g, 0, 1) * 255);
             byte bq = (byte)Math.Round(Math.Clamp(b, 0, 1) * 255);
