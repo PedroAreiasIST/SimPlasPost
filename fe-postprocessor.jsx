@@ -884,6 +884,7 @@ export default function FEPostprocessor() {
 
   const [meshData,setMeshData]=useState(null);
   const [activeDemo,setActiveDemo]=useState(-1);
+  const [activeFinerDemo,setActiveFinerDemo]=useState(-1);
   const [activeField,setActiveField]=useState("");
 
   const [displayMode,setDisplayMode]=useState("plot"); // "wireframe"|"plot"|"lines"
@@ -936,15 +937,18 @@ export default function FEPostprocessor() {
   },[]);
 
   const demos=useMemo(()=>[
-    {name:"Plate with Hole (2D Quads)",            make:()=>genPlateHole()},
-    {name:"Cantilever (3D Hex8)",                  make:()=>gen3DBeam()},
-    {name:"Unit Square (2D Tri3)",                 make:()=>gen2DTri()},
-    {name:"Plate with Hole — Fine (2D Quads)",     make:()=>genPlateHole({nr:48, nth:128, no:48, name:"Plate with Hole — Fine (2D Quads)"})},
+    {name:"Plate with Hole (2D Quads)", make:()=>genPlateHole()},
+    {name:"Cantilever (3D Hex8)",       make:()=>gen3DBeam()},
+    {name:"Unit Square (2D Tri3)",      make:()=>gen2DTri()},
+  ],[]);
+
+  const finerDemos=useMemo(()=>[
+    {name:"Plate with Hole — Fine (2D Quads)",       make:()=>genPlateHole({nr:48, nth:128, no:48, name:"Plate with Hole — Fine (2D Quads)"})},
     {name:"Plate with Hole — Ultra-Fine (2D Quads)", make:()=>genPlateHole({nr:96, nth:256, no:96, name:"Plate with Hole — Ultra-Fine (2D Quads)"})},
-    {name:"Cantilever — Fine (3D Hex8)",           make:()=>gen3DBeam({nx:96, ny:20, nz:20, name:"Cantilever — Fine (3D Hex8)"})},
-    {name:"Cantilever — Ultra-Fine (3D Hex8)",     make:()=>gen3DBeam({nx:160, ny:32, nz:32, name:"Cantilever — Ultra-Fine (3D Hex8)"})},
-    {name:"Unit Square — Fine (2D Tri3)",          make:()=>gen2DTri({n:80, name:"Unit Square — Fine (2D Tri3)"})},
-    {name:"Unit Square — Ultra-Fine (2D Tri3)",    make:()=>gen2DTri({n:160, name:"Unit Square — Ultra-Fine (2D Tri3)"})},
+    {name:"Cantilever — Fine (3D Hex8)",             make:()=>gen3DBeam({nx:96, ny:20, nz:20, name:"Cantilever — Fine (3D Hex8)"})},
+    {name:"Cantilever — Ultra-Fine (3D Hex8)",       make:()=>gen3DBeam({nx:160, ny:32, nz:32, name:"Cantilever — Ultra-Fine (3D Hex8)"})},
+    {name:"Unit Square — Fine (2D Tri3)",            make:()=>gen2DTri({n:80, name:"Unit Square — Fine (2D Tri3)"})},
+    {name:"Unit Square — Ultra-Fine (2D Tri3)",      make:()=>gen2DTri({n:160, name:"Unit Square — Ultra-Fine (2D Tri3)"})},
   ],[]);
 
   const loadMesh=useCallback((d)=>{
@@ -957,6 +961,7 @@ export default function FEPostprocessor() {
   },[]);
 
   useEffect(()=>{if(activeDemo>=0)loadMesh(demos[activeDemo].make());},[activeDemo,demos,loadMesh]);
+  useEffect(()=>{if(activeFinerDemo>=0)loadMesh(finerDemos[activeFinerDemo].make());},[activeFinerDemo,finerDemos,loadMesh]);
 
   // Boundary-face extraction and dimensionality only depend on mesh topology, so they can
   // be cached across unrelated state changes (active field, display mode, slider moves...).
@@ -1410,9 +1415,17 @@ export default function FEPostprocessor() {
           <div style={{color:"#4a9eff",fontSize:11,fontWeight:600,borderBottom:"1px solid #2a2e38",paddingBottom:3,marginBottom:5}}>Examples</div>
           <select style={{padding:"4px 8px",fontSize:11,border:"1px solid #333844",borderRadius:4,background:"#22252e",color:"#c8cdd5",width:"100%",marginBottom:8}}
             value={activeDemo}
-            onChange={e=>setActiveDemo(parseInt(e.target.value))}>
+            onChange={e=>{setActiveFinerDemo(-1);setActiveDemo(parseInt(e.target.value));}}>
             <option value={-1}>— Select an example —</option>
             {demos.map((d,i)=><option key={i} value={i}>{d.name}</option>)}
+          </select>
+
+          <div style={{color:"#4a9eff",fontSize:11,fontWeight:600,borderBottom:"1px solid #2a2e38",paddingBottom:3,marginBottom:5}}>Finer Meshes</div>
+          <select style={{padding:"4px 8px",fontSize:11,border:"1px solid #333844",borderRadius:4,background:"#22252e",color:"#c8cdd5",width:"100%",marginBottom:8}}
+            value={activeFinerDemo}
+            onChange={e=>{setActiveDemo(-1);setActiveFinerDemo(parseInt(e.target.value));}}>
+            <option value={-1}>— Select a finer mesh —</option>
+            {finerDemos.map((d,i)=><option key={i} value={i}>{d.name}</option>)}
           </select>
 
           <div style={{color:"#4a9eff",fontSize:11,fontWeight:600,borderBottom:"1px solid #2a2e38",paddingBottom:3,marginBottom:5}}>Load Data</div>
