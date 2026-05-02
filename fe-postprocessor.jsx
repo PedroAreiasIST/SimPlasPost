@@ -285,7 +285,7 @@ function parseEnsightVector(text, nNodes) {
 // ─── Demo meshes ───
 function genPlateHole() {
   const nodes=[],elements=[];
-  const R=0.3,W=1,nr=6,nth=16,no=6;
+  const R=0.3,W=1,nr=24,nth=64,no=24;
   for (let j=0;j<=nth;j++) { const th=(j/nth)*Math.PI*0.5;
     for (let i=0;i<=nr+no;i++) { let r=i<=nr?R+(W*0.5-R)*(i/nr):W*0.5+(W-W*0.5)*((i-nr)/no);
       nodes.push([r*Math.cos(th),r*Math.sin(th),0]); }}
@@ -301,7 +301,7 @@ function genPlateHole() {
   return {name:"Plate with Hole (2D Quads)",dim:2,nodes,elements,fields:{"Von Mises":{type:"scalar",values:fv},Displacement:{type:"vector",values:dv}}};
 }
 function gen3DBeam() {
-  const nx=12,ny=3,nz=3,Lx=4,Ly=.5,Lz=.5,nodes=[],elements=[];
+  const nx=48,ny=10,nz=10,Lx=4,Ly=.5,Lz=.5,nodes=[],elements=[];
   for(let k=0;k<=nz;k++)for(let j=0;j<=ny;j++)for(let i=0;i<=nx;i++) nodes.push([(i/nx)*Lx,(j/ny)*Ly-Ly/2,(k/nz)*Lz-Lz/2]);
   const id=(i,j,k)=>k*(ny+1)*(nx+1)+j*(nx+1)+i;
   for(let k=0;k<nz;k++)for(let j=0;j<ny;j++)for(let i=0;i<nx;i++)
@@ -311,7 +311,7 @@ function gen3DBeam() {
     Displacement:{type:"vector",values:nodes.map(([x])=>{const t=x/Lx;return[0,-.15*t*t*(3-2*t),0];})}}};
 }
 function gen2DTri() {
-  const n=10,nodes=[],elements=[];
+  const n=40,nodes=[],elements=[];
   for(let j=0;j<=n;j++)for(let i=0;i<=n;i++) nodes.push([i/n,j/n,0]);
   for(let j=0;j<n;j++)for(let i=0;i<n;i++){const b=j*(n+1)+i;
     elements.push({type:"tri3",conn:[b,b+1,(j+1)*(n+1)+i+1]});
@@ -880,7 +880,7 @@ export default function FEPostprocessor() {
   const needsFitRef=useRef(true); // auto zoom-to-fit on first load
 
   const [meshData,setMeshData]=useState(null);
-  const [activeDemo,setActiveDemo]=useState(0);
+  const [activeDemo,setActiveDemo]=useState(-1);
   const [activeField,setActiveField]=useState("");
 
   const [displayMode,setDisplayMode]=useState("plot"); // "wireframe"|"plot"|"lines"
@@ -1391,10 +1391,17 @@ export default function FEPostprocessor() {
     <div style={{display:"flex",flexDirection:"column",height:"100vh",width:"100vw",background:"#12141a",fontFamily:"'JetBrains Mono','Fira Code','SF Mono',monospace",color:"#c8cdd5",overflow:"hidden"}}>
       <div style={{display:"flex",alignItems:"center",gap:8,padding:"5px 12px",background:"#1a1d25",borderBottom:"1px solid #2a2e38",flexShrink:0,flexWrap:"wrap",fontSize:11}}>
         <span style={{color:"#4a9eff",fontWeight:700,fontSize:13,marginRight:8}}>SIMPLAS Viewer</span>
-        {demos.map((d,i)=><button key={i} style={B(activeDemo===i)} onClick={()=>setActiveDemo(i)}>{d.name.split("(")[0].trim()}</button>)}
       </div>
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
         <div style={{width:210,background:"#16181f",borderRight:"1px solid #2a2e38",padding:10,overflowY:"auto",flexShrink:0,fontSize:11}}>
+          <div style={{color:"#4a9eff",fontSize:11,fontWeight:600,borderBottom:"1px solid #2a2e38",paddingBottom:3,marginBottom:5}}>Examples</div>
+          <select style={{padding:"4px 8px",fontSize:11,border:"1px solid #333844",borderRadius:4,background:"#22252e",color:"#c8cdd5",width:"100%",marginBottom:8}}
+            value={activeDemo}
+            onChange={e=>setActiveDemo(parseInt(e.target.value))}>
+            <option value={-1}>— Select an example —</option>
+            {demos.map((d,i)=><option key={i} value={i}>{d.name}</option>)}
+          </select>
+
           <div style={{color:"#4a9eff",fontSize:11,fontWeight:600,borderBottom:"1px solid #2a2e38",paddingBottom:3,marginBottom:5}}>Load Data</div>
           <label style={{padding:"5px 10px",fontSize:11,border:"1px dashed #4a9eff",borderRadius:4,color:"#4a9eff",cursor:"pointer",textAlign:"center",display:"block",marginBottom:4}}>
             Ensight (.case + files)<input type="file" multiple onChange={handleEnsight} style={{display:"none"}} />
