@@ -42,6 +42,8 @@ public class MeshGlSurface : OpenGlControlBase
     private int _cachedStep = -1;
     private int _cachedContourN = -1;
     private bool _cachedShowLabels;
+    private bool _cachedShowMeshLines = true;
+    private bool _cachedShowGeometryContours;
     private bool _geomDirty = true;
 
     private float[] _posX = Array.Empty<float>();
@@ -51,6 +53,13 @@ public class MeshGlSurface : OpenGlControlBase
     private int[] _faceOffsets = Array.Empty<int>();
     private int[] _faceVertices = Array.Empty<int>();
     private bool[] _drawEdges = Array.Empty<bool>();
+    // Per-node world-space normals, area-weighted average of incident face
+    // cross products.  Computed once per RebuildGeometry; consumed every
+    // frame by the Geometry-mode lighting pass to derive grayscale shading
+    // from n · cam.Forward.
+    private float[] _normX = Array.Empty<float>();
+    private float[] _normY = Array.Empty<float>();
+    private float[] _normZ = Array.Empty<float>();
     private byte[] _vertR = Array.Empty<byte>();
     private byte[] _vertG = Array.Empty<byte>();
     private byte[] _vertB = Array.Empty<byte>();
@@ -102,7 +111,9 @@ public class MeshGlSurface : OpenGlControlBase
         _vm.UserMin != _cachedUserMin || _vm.UserMax != _cachedUserMax ||
         _vm.CurrentStep != _cachedStep ||
         _vm.ContourN != _cachedContourN ||
-        _vm.ShowContourLabels != _cachedShowLabels);
+        _vm.ShowContourLabels != _cachedShowLabels ||
+        _vm.ShowMeshLines != _cachedShowMeshLines ||
+        _vm.ShowGeometryContours != _cachedShowGeometryContours);
 
     protected override void OnOpenGlInit(GlInterface gl)
     {
@@ -222,6 +233,8 @@ public class MeshGlSurface : OpenGlControlBase
         _cachedStep = _vm.CurrentStep;
         _cachedContourN = _vm.ContourN;
         _cachedShowLabels = _vm.ShowContourLabels;
+        _cachedShowMeshLines = _vm.ShowMeshLines;
+        _cachedShowGeometryContours = _vm.ShowGeometryContours;
 
         var ns = mesh.Nodes;
         float mnX = float.MaxValue, mnY = float.MaxValue, mnZ = float.MaxValue;
@@ -284,18 +297,52 @@ public class MeshGlSurface : OpenGlControlBase
         // For per-element fields, contour iso-lines collapse (the field is
         // constant inside each element), so the user's Lines mode degrades
         // to Plot semantics for face-coloring and edge-drawing.  Wireframe
-        // is unchanged.
+        // and Geometry are unchanged.
         DisplayMode effectiveMode = (isPerElement && dMode == DisplayMode.Lines)
             ? DisplayMode.Plot
             : dMode;
 
+        // Per-vertex world-space normals — area-weighted average of
+        // incident face normals (the cross product magnitude IS twice the
+        // triangle area, so a plain sum naturally area-weights).  Used by
+        // the Geometry-mode per-frame lighting pass.
+        _normX = new float[_nVerts];
+        _normY = new float[_nVerts];
+        _normZ = new float[_nVerts];
+        foreach (var face in bfaces)
+        {
+            if (face.Length < 3) continue;
+            int v0 = face[0], v1 = face[1], v2 = face[2];
+            float ux = _posX[v1] - _posX[v0], uy = _posY[v1] - _posY[v0], uz = _posZ[v1] - _posZ[v0];
+            float vx = _posX[v2] - _posX[v0], vy = _posY[v2] - _posY[v0], vz = _posZ[v2] - _posZ[v0];
+            float fnx = uy * vz - uz * vy;
+            float fny = uz * vx - ux * vz;
+            float fnz = ux * vy - uy * vx;
+            foreach (var v in face)
+            {
+                _normX[v] += fnx;
+                _normY[v] += fny;
+                _normZ[v] += fnz;
+            }
+        }
+        for (int i = 0; i < _nVerts; i++)
+        {
+            float l = (float)Math.Sqrt(_normX[i] * _normX[i] + _normY[i] * _normY[i] + _normZ[i] * _normZ[i]);
+            if (l > 1e-12f) { _normX[i] /= l; _normY[i] /= l; _normZ[i] /= l; }
+        }
+
         // Per-NODE colour table: used by Bar2/Point1 elements (which always
         // colour by node) and by the smooth-shading path for per-node fields.
+        // In Geometry mode the per-tri-vertex grayscale is computed each
+        // FRAME (in ProjectAndUpload) from the camera direction, so the
+        // per-node table here is just a neutral mid-grey for bars/points.
         var vr = new byte[_nVerts]; var vg = new byte[_nVerts]; var vb = new byte[_nVerts];
         bool whiteFaces = effectiveMode == DisplayMode.Wireframe || effectiveMode == DisplayMode.Lines;
+        bool geometryMode = effectiveMode == DisplayMode.Geometry;
         for (int i = 0; i < _nVerts; i++)
         {
             if (whiteFaces) { vr[i] = 255; vg[i] = 255; vb[i] = 255; }
+            else if (geometryMode) { vr[i] = 160; vg[i] = 160; vb[i] = 160; }
             else if (fv != null && !isPerElement && i < fv.Length)
             {
                 double t = (fv[i] - efMin) / efSpan;
@@ -315,7 +362,13 @@ public class MeshGlSurface : OpenGlControlBase
             var face = bfaces[fi];
             offsets[fi] = vi;
             for (int j = 0; j < face.Length; j++) verts[vi++] = face[j];
-            showEdges[fi] = effectiveMode == DisplayMode.Wireframe || effectiveMode == DisplayMode.Plot;
+            // Wireframe always draws face edges (otherwise nothing is
+            // visible).  Plot draws them only when the user has enabled
+            // "Mesh lines" in the sidebar.  Lines and Geometry never draw
+            // them — Lines uses iso-contour lines instead, Geometry uses
+            // shaded faces.
+            showEdges[fi] = effectiveMode == DisplayMode.Wireframe ||
+                            (effectiveMode == DisplayMode.Plot && _vm.ShowMeshLines);
         }
         offsets[bfaces.Count] = vi;
         _faceOffsets = offsets; _faceVertices = verts;
@@ -426,7 +479,13 @@ public class MeshGlSurface : OpenGlControlBase
             _nVerts = newCount;
         }
 
-        if (effectiveMode == DisplayMode.Lines)
+        // Iso-contour lines are emitted in classic Lines mode and, when
+        // the user has opted into them, in Geometry mode too (so the
+        // Lambert-shaded geometry view can be overlaid with field
+        // iso-lines for engineering "shaded contour" plots).
+        bool emitContours = effectiveMode == DisplayMode.Lines ||
+                            (effectiveMode == DisplayMode.Geometry && _vm.ShowGeometryContours);
+        if (emitContours)
         {
             var dp = new double[_nVerts][];
             for (int i = 0; i < _nVerts; i++)
@@ -579,14 +638,39 @@ public class MeshGlSurface : OpenGlControlBase
             _sz[i] = rx * frx + ry * fry + rz * frz;
         }
 
-        // Build the per-frame triangle soup: each triangle's 3 vertex slots
-        // come from the pre-baked _triNode + _triR/G/B arrays, looking up
-        // current screen positions from the per-node projection results.
+        // Build the per-frame triangle soup.
+        //
+        // For Plot / Wireframe / Lines: vertex slots come from the
+        // pre-baked _triNode + _triR/G/B arrays.
+        //
+        // For Geometry: ignore the baked colours and recompute a Lambert
+        // grayscale per node from the camera-forward direction (head-light
+        // model).  Two-sided shading via abs(n · forward) so back faces
+        // aren't pitch black; an ambient term keeps grazing angles
+        // legible.  This is the only path that has to update per frame
+        // with the camera rotation; for a typical mesh that's a few mul-
+        // adds per vertex slot.
         var triVerts = new GlVertex[_triNode.Length];
-        for (int i = 0; i < _triNode.Length; i++)
+        if (_cachedMode == DisplayMode.Geometry)
         {
-            int n = _triNode[i];
-            triVerts[i] = new GlVertex(_sx[n], _sy[n], _sz[n], _triR[i], _triG[i], _triB[i]);
+            float lx = (float)cam.Forward.X, ly = (float)cam.Forward.Y, lz = (float)cam.Forward.Z;
+            for (int i = 0; i < _triNode.Length; i++)
+            {
+                int n = _triNode[i];
+                float dot = Math.Abs(_normX[n] * lx + _normY[n] * ly + _normZ[n] * lz);
+                float gray = 0.25f + 0.75f * dot;
+                if (gray > 1f) gray = 1f;
+                byte g = (byte)(gray * 255);
+                triVerts[i] = new GlVertex(_sx[n], _sy[n], _sz[n], g, g, g);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < _triNode.Length; i++)
+            {
+                int n = _triNode[i];
+                triVerts[i] = new GlVertex(_sx[n], _sy[n], _sz[n], _triR[i], _triG[i], _triB[i]);
+            }
         }
         _renderer.UploadMesh(triVerts);
         _renderer.UploadEdges(_sx, _sy, _sz, _faceOffsets, _faceVertices, _drawEdges, 0x22, 0x22, 0x22);
