@@ -25,22 +25,22 @@
 
         <!-- Display Mode -->
         <TextBlock Text="Display" Classes="section" Margin="0,10,0,4"/>
-        <RadioButton x:Name="RbPlain" Content="Plain" GroupName="DMode" Click="OnDisplayModeChanged"/>
-        <RadioButton x:Name="RbPlot" Content="Contour Plot" GroupName="DMode" IsChecked="True" Click="OnDisplayModeChanged"/>
+        <RadioButton x:Name="RbPlain" Content="Plain" GroupName="DMode" IsChecked="True" Click="OnDisplayModeChanged"/>
+        <RadioButton x:Name="RbPlot" Content="Contour Plot" GroupName="DMode" Click="OnDisplayModeChanged"/>
         <RadioButton x:Name="RbLines" Content="Contour Lines" GroupName="DMode" Click="OnDisplayModeChanged"/>
 
         <!-- Plain-mode options.  The Lighting checkbox is only meaningful
              when mesh lines are visible: with mesh lines off, lighting
              is forced on (a flat-white silhouette would otherwise be
              unreadable), so the row is hidden in that configuration. -->
-        <StackPanel x:Name="PnlPlainOptions" IsVisible="False" Margin="0,4,0,0">
-          <CheckBox x:Name="CbPlainMeshLines"     Content="Mesh lines"     Click="OnPlainMeshLinesChanged"/>
+        <StackPanel x:Name="PnlPlainOptions" IsVisible="True" Margin="0,4,0,0">
+          <CheckBox x:Name="CbPlainMeshLines"     Content="Mesh lines"     IsChecked="True" Click="OnPlainMeshLinesChanged"/>
           <CheckBox x:Name="CbPlainGeometryEdges" Content="Geometry edges" IsChecked="True" Click="OnPlainGeometryEdgesChanged"/>
-          <CheckBox x:Name="CbPlainLighting"      Content="Lighting"       IsChecked="True" IsVisible="False" Click="OnPlainLightingChanged"/>
+          <CheckBox x:Name="CbPlainLighting"      Content="Lighting"       IsChecked="True" Click="OnPlainLightingChanged"/>
         </StackPanel>
 
         <!-- Plot-mode options -->
-        <StackPanel x:Name="PnlPlotOptions" IsVisible="True" Margin="0,4,0,0">
+        <StackPanel x:Name="PnlPlotOptions" IsVisible="False" Margin="0,4,0,0">
           <CheckBox x:Name="CbMeshLines" Content="Mesh lines" IsChecked="True" Click="OnMeshLinesChanged"/>
         </StackPanel>
 
