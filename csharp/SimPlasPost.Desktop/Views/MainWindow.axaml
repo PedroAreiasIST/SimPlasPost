@@ -29,11 +29,14 @@
         <RadioButton x:Name="RbPlot" Content="Contour Plot" GroupName="DMode" IsChecked="True" Click="OnDisplayModeChanged"/>
         <RadioButton x:Name="RbLines" Content="Contour Lines" GroupName="DMode" Click="OnDisplayModeChanged"/>
 
-        <!-- Plain-mode options.  Lighting is derived (on iff mesh lines
-             are off), so the user only sees two checkboxes here. -->
+        <!-- Plain-mode options.  The Lighting checkbox is only meaningful
+             when mesh lines are visible: with mesh lines off, lighting
+             is forced on (a flat-white silhouette would otherwise be
+             unreadable), so the row is hidden in that configuration. -->
         <StackPanel x:Name="PnlPlainOptions" IsVisible="False" Margin="0,4,0,0">
           <CheckBox x:Name="CbPlainMeshLines"     Content="Mesh lines"     Click="OnPlainMeshLinesChanged"/>
           <CheckBox x:Name="CbPlainGeometryEdges" Content="Geometry edges" IsChecked="True" Click="OnPlainGeometryEdgesChanged"/>
+          <CheckBox x:Name="CbPlainLighting"      Content="Lighting"       IsChecked="True" IsVisible="False" Click="OnPlainLightingChanged"/>
         </StackPanel>
 
         <!-- Plot-mode options -->

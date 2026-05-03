@@ -96,12 +96,15 @@ public class MainViewModel : INotifyPropertyChanged
 
     // ─── Plain-mode toggles ───
     // Plain replaces the old Wireframe + Geometry modes with one
-    // structural-view surface and two user-facing switches.  Lighting
-    // is derived: it's on iff the user has hidden mesh lines, i.e. the
-    // two settings are opposites of each other.  Together the defaults
-    // (mesh lines off → lighting on, geometry edges on) emulate the
-    // old Geometry view; turning mesh lines on flips lighting off and
-    // recovers the old Wireframe view.
+    // structural-view surface.  The user controls two raw toggles —
+    // mesh lines and geometry edges — plus an optional lighting flag
+    // that only matters when mesh lines are visible.  When mesh lines
+    // are hidden, lighting is forced on regardless: a flat-white
+    // silhouette without either visual cue is unreadable.
+    //
+    // The downstream renderer / PDF exporter consume the effective
+    // <see cref="ShowPlainLighting"/>; the checkbox in the sidebar
+    // binds to <see cref="ShowPlainLightingPref"/>.
     private bool _showPlainMeshLines;
     public bool ShowPlainMeshLines
     {
@@ -119,7 +122,21 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _showPlainGeometryEdges = true;
     public bool ShowPlainGeometryEdges { get => _showPlainGeometryEdges; set { if (Set(ref _showPlainGeometryEdges, value)) InvalidateScene(); } }
 
-    public bool ShowPlainLighting => !ShowPlainMeshLines;
+    private bool _showPlainLightingPref = true;
+    public bool ShowPlainLightingPref
+    {
+        get => _showPlainLightingPref;
+        set
+        {
+            if (Set(ref _showPlainLightingPref, value))
+            {
+                OnPropertyChanged(nameof(ShowPlainLighting));
+                InvalidateScene();
+            }
+        }
+    }
+
+    public bool ShowPlainLighting => !ShowPlainMeshLines || ShowPlainLightingPref;
 
     /// <summary>
     /// World-space label candidates produced by the renderer in
