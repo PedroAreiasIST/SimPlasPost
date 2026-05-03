@@ -48,17 +48,37 @@ public static class DimensionExtractor
         double[] W(double x, double y, double z) =>
             new[] { (x - cenX) * sc, (y - cenY) * sc, (z - cenZ) * sc };
 
-        bool is3D = meshData.Dim == 3 || meshData.Elements.Any(e =>
+        double[] extents = { mxX - mnX, mxY - mnY, mxZ - mnZ };
+        double maxExt = Math.Max(extents[0], Math.Max(extents[1], extents[2]));
+
+        // Effective dimensionality.  A mesh whose nodes all sit on a flat
+        // plane (typical of 2D meshes loaded with Dim = 3 — Ensight files
+        // often label everything as 3D regardless of geometry) is treated
+        // as 2D so we don't emit a near-zero "H" / "t" dimension along
+        // the degenerate axis or attempt sphere / cylinder fits on the
+        // collapsed coordinate.  We trust volume elements (Tet4 / Hex8 /
+        // Penta6) — they always imply a true 3D mesh — but for surface
+        // meshes (Tri3 / Quad4) we fall back to the bbox-extent ratio.
+        const double FlatRatio = 1e-4;
+        bool hasVolumeElements = meshData.Elements.Any(e =>
             FaceTable.Faces.TryGetValue(e.Type, out var ft) && ft.Dim == 3);
+        bool hasSurfaceElements = meshData.Elements.Any(e =>
+            FaceTable.Faces.TryGetValue(e.Type, out var ft) && ft.Dim == 2);
+        bool flatInZ = maxExt > 1e-12 && extents[2] / maxExt < FlatRatio;
+        bool flatInY = maxExt > 1e-12 && extents[1] / maxExt < FlatRatio;
+        bool flatInX = maxExt > 1e-12 && extents[0] / maxExt < FlatRatio;
+        bool degenerateAxis = flatInZ || flatInY || flatInX;
+        // Honour an explicit Dim = 2 declaration as well, so loaders that
+        // do auto-detect (e.g. the JSON loader) keep working unchanged.
+        bool is3D = !(meshData.Dim == 2 || (!hasVolumeElements && degenerateAxis));
 
         // Detect a "thin" axis: one extent much smaller than the others.
         // Threshold 0.5 catches obvious plates (Toblerone, House) without
         // labelling near-cubic meshes (Cantilever ratio 1:8:8 has X long
         // and Y/Z thin in proportion, which we leave alone — only the
         // smallest axis becomes "t" when its ratio to the median is
-        // unambiguously small).  2D meshes have Z=0 by construction; we
-        // skip the test there since the answer is trivially "Z is thin".
-        double[] extents = { mxX - mnX, mxY - mnY, mxZ - mnZ };
+        // unambiguously small).  Skipped for effective-2D meshes since
+        // the degenerate axis would always win the test trivially.
         int thinAxis = -1;
         if (is3D)
         {
@@ -72,20 +92,29 @@ public static class DimensionExtractor
         }
 
         // Bounding-box extent dimensions, with the thin axis relabelled.
+        // Skip any axis whose extent is negligible relative to the largest
+        // — emitting "L = 0" or "H = 1e-15" on a flat sheet just clutters
+        // the figure with meaningless annotations.
         string labelX = thinAxis == 0 ? "t" : "L";
         string labelY = thinAxis == 1 ? "t" : (thinAxis == 0 ? "L" : "W");
         string labelZ = thinAxis == 2 ? "t" : (thinAxis == 1 ? "W" : "H");
-        dims.Add(new DimensionWorld
+        if (extents[0] / Math.Max(maxExt, 1e-12) > FlatRatio)
         {
-            Kind = DimensionKind.Linear, Label = labelX, Value = mxX - mnX,
-            P1 = W(mnX, mnY, mnZ), P2 = W(mxX, mnY, mnZ),
-        });
-        dims.Add(new DimensionWorld
+            dims.Add(new DimensionWorld
+            {
+                Kind = DimensionKind.Linear, Label = labelX, Value = mxX - mnX,
+                P1 = W(mnX, mnY, mnZ), P2 = W(mxX, mnY, mnZ),
+            });
+        }
+        if (extents[1] / Math.Max(maxExt, 1e-12) > FlatRatio)
         {
-            Kind = DimensionKind.Linear, Label = labelY, Value = mxY - mnY,
-            P1 = W(mnX, mnY, mnZ), P2 = W(mnX, mxY, mnZ),
-        });
-        if (is3D)
+            dims.Add(new DimensionWorld
+            {
+                Kind = DimensionKind.Linear, Label = labelY, Value = mxY - mnY,
+                P1 = W(mnX, mnY, mnZ), P2 = W(mnX, mxY, mnZ),
+            });
+        }
+        if (is3D && extents[2] / Math.Max(maxExt, 1e-12) > FlatRatio)
         {
             dims.Add(new DimensionWorld
             {
@@ -95,8 +124,11 @@ public static class DimensionExtractor
         }
 
         // 2D circular holes plus outer-boundary arcs (notch radii, fillet
-        // radii, partial circles on the silhouette).
-        if (!is3D)
+        // radii, partial circles on the silhouette).  Runs whenever the
+        // mesh is effectively 2D — including 2D-flat-in-3D meshes,
+        // provided they are flat in Z (the boundary-loop walker ignores Z
+        // and the circle fit operates in XY).
+        if (!is3D && hasSurfaceElements && !flatInX && !flatInY)
             AppendCircularHoles2D(meshData, ns, dims, W, mnX, mnY);
 
         // 3D features: spheres + cylindrical holes.
