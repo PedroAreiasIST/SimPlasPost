@@ -397,11 +397,30 @@ public partial class MainWindow : Window
         // With mesh lines off the renderer forces lighting on, so hide
         // the checkbox to keep the UI honest.
         CbPlainLighting.IsVisible = _vm.ShowPlainMeshLines;
+        // Geometry edges and mesh lines are mutually exclusive: when mesh
+        // lines are on, the geometry-edge overlay is forced off and the
+        // checkbox is disabled. With mesh lines off the user can freely
+        // toggle geometry edges on or off.
+        SyncPlainGeometryEdgesAvailability();
     }
 
     private void OnPlainGeometryEdgesChanged(object? sender, RoutedEventArgs e)
     {
         if (_vm != null) _vm.ShowPlainGeometryEdges = CbPlainGeometryEdges.IsChecked == true;
+    }
+
+    private void SyncPlainGeometryEdgesAvailability()
+    {
+        if (_vm == null) return;
+        bool meshLinesOn = _vm.ShowPlainMeshLines;
+        CbPlainGeometryEdges.IsEnabled = !meshLinesOn;
+        if (meshLinesOn)
+        {
+            // Force off both in the UI and in the VM so renderer/exporter
+            // never see geometry edges while mesh lines are visible.
+            CbPlainGeometryEdges.IsChecked = false;
+            _vm.ShowPlainGeometryEdges = false;
+        }
     }
 
     private void OnPlainLightingChanged(object? sender, RoutedEventArgs e)

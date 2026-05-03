@@ -113,14 +113,31 @@ public class MainViewModel : INotifyPropertyChanged
         {
             if (Set(ref _showPlainMeshLines, value))
             {
+                // Geometry edges and mesh lines are mutually exclusive in
+                // Plain mode: mesh lines win, so turning them on forces the
+                // geometry-edge overlay off. The View reflects this by
+                // disabling the corresponding checkbox.
+                if (value && _showPlainGeometryEdges)
+                    ShowPlainGeometryEdges = false;
                 OnPropertyChanged(nameof(ShowPlainLighting));
                 InvalidateScene();
             }
         }
     }
 
-    private bool _showPlainGeometryEdges = true;
-    public bool ShowPlainGeometryEdges { get => _showPlainGeometryEdges; set { if (Set(ref _showPlainGeometryEdges, value)) InvalidateScene(); } }
+    private bool _showPlainGeometryEdges = false;
+    public bool ShowPlainGeometryEdges
+    {
+        get => _showPlainGeometryEdges;
+        set
+        {
+            // Reject any attempt to turn geometry edges on while mesh lines
+            // are visible — the rule must hold even if a binding bypasses
+            // the View handler.
+            bool effective = value && !_showPlainMeshLines;
+            if (Set(ref _showPlainGeometryEdges, effective)) InvalidateScene();
+        }
+    }
 
     private bool _showPlainLightingPref = true;
     public bool ShowPlainLightingPref
