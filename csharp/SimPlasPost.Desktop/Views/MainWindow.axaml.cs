@@ -453,6 +453,11 @@ public partial class MainWindow : Window
         if (_vm != null) _vm.ShowContourLabels = CbContourLabels.IsChecked == true;
     }
 
+    private void OnLinesLightingChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_vm != null) _vm.ShowLinesLighting = CbLinesLighting.IsChecked == true;
+    }
+
     // ─── Time step ───
     private void OnStepChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {

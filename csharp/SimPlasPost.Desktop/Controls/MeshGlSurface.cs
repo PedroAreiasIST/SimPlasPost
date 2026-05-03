@@ -46,6 +46,7 @@ public class MeshGlSurface : OpenGlControlBase
     private bool _cachedPlainMeshLines;
     private bool _cachedPlainGeometryEdges = true;
     private bool _cachedPlainLighting = true;
+    private bool _cachedLinesLighting = true;
     private bool _geomDirty = true;
 
     private float[] _posX = Array.Empty<float>();
@@ -117,7 +118,8 @@ public class MeshGlSurface : OpenGlControlBase
         _vm.ShowMeshLines != _cachedShowMeshLines ||
         _vm.ShowPlainMeshLines != _cachedPlainMeshLines ||
         _vm.ShowPlainGeometryEdges != _cachedPlainGeometryEdges ||
-        _vm.ShowPlainLighting != _cachedPlainLighting);
+        _vm.ShowPlainLighting != _cachedPlainLighting ||
+        _vm.ShowLinesLighting != _cachedLinesLighting);
 
     protected override void OnOpenGlInit(GlInterface gl)
     {
@@ -241,6 +243,7 @@ public class MeshGlSurface : OpenGlControlBase
         _cachedPlainMeshLines = _vm.ShowPlainMeshLines;
         _cachedPlainGeometryEdges = _vm.ShowPlainGeometryEdges;
         _cachedPlainLighting = _vm.ShowPlainLighting;
+        _cachedLinesLighting = _vm.ShowLinesLighting;
 
         var ns = mesh.Nodes;
         float mnX = float.MaxValue, mnY = float.MaxValue, mnZ = float.MaxValue;
@@ -345,11 +348,18 @@ public class MeshGlSurface : OpenGlControlBase
         var vr = new byte[_nVerts]; var vg = new byte[_nVerts]; var vb = new byte[_nVerts];
         bool plainMode = effectiveMode == DisplayMode.Plain;
         bool plainLit  = plainMode && _vm.ShowPlainLighting;
-        bool whiteFaces = (plainMode && !plainLit) || effectiveMode == DisplayMode.Lines;
+        bool linesLit  = effectiveMode == DisplayMode.Lines && _vm.ShowLinesLighting;
+        bool litFaces  = plainLit || linesLit;
+        // White-fill applies in unlit Plain (the old "Wireframe" feel) and
+        // in unlit Lines (so iso-contours carry all the colour).  Lit
+        // Lines uses the same Lambert grayscale as lit Plain — see the
+        // per-frame lighting branch below.
+        bool whiteFaces = (plainMode && !plainLit) ||
+                          (effectiveMode == DisplayMode.Lines && !linesLit);
         for (int i = 0; i < _nVerts; i++)
         {
             if (whiteFaces) { vr[i] = 255; vg[i] = 255; vb[i] = 255; }
-            else if (plainLit) { vr[i] = 160; vg[i] = 160; vb[i] = 160; }
+            else if (litFaces) { vr[i] = 160; vg[i] = 160; vb[i] = 160; }
             else if (fv != null && !isPerElement && i < fv.Length)
             {
                 double t = (fv[i] - efMin) / efSpan;
@@ -432,7 +442,7 @@ public class MeshGlSurface : OpenGlControlBase
             // (they're sized to the pre-subdivision _nVerts) — accessing
             // them in ProjectAndUpload's per-frame lighting throws OOB
             // and the swallowed exception leaves the screen frozen.
-            if (!useElemColor && !whiteFaces && !plainLit && fv != null && !isPerElement)
+            if (!useElemColor && !whiteFaces && !litFaces && fv != null && !isPerElement)
             {
                 tArr = new double[n];
                 double tMin = double.MaxValue, tMax = double.MinValue;
@@ -676,7 +686,9 @@ public class MeshGlSurface : OpenGlControlBase
         // legible.  Same formula runs in SceneBuilder (PDF) so screen
         // and PDF agree pixel-for-pixel.
         var triVerts = new GlVertex[_triNode.Length];
-        bool perFrameLighting = _cachedMode == DisplayMode.Plain && _cachedPlainLighting;
+        bool perFrameLighting =
+            (_cachedMode == DisplayMode.Plain && _cachedPlainLighting) ||
+            (_cachedMode == DisplayMode.Lines && _cachedLinesLighting);
         if (perFrameLighting)
         {
             float lx = (float)cam.Forward.X, ly = (float)cam.Forward.Y, lz = (float)cam.Forward.Z;

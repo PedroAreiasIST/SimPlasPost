@@ -45,12 +45,15 @@
           <CheckBox x:Name="CbMeshLines" Content="Mesh lines" IsChecked="True" Click="OnMeshLinesChanged"/>
         </StackPanel>
 
-        <!-- Lines-mode options (iso-level slider + labels) -->
+        <!-- Lines-mode options (iso-level slider + labels + lighting) -->
         <StackPanel x:Name="PnlContourN" IsVisible="False" Margin="0,4,0,0">
           <TextBlock x:Name="TxtContourN" Classes="hint"/>
           <Slider x:Name="SlContourN" Minimum="3" Maximum="30" Value="10" IsSnapToTickEnabled="True" TickFrequency="1"
                   ValueChanged="OnContourNChanged"/>
           <CheckBox x:Name="CbContourLabels" Content="Labels" Click="OnContourLabelsChanged"/>
+          <CheckBox x:Name="CbLinesLighting" Content="Lighting" IsChecked="True"
+                    Click="OnLinesLightingChanged"
+                    ToolTip.Tip="Apply Plain-mode head-light Lambert shading under the iso-contour lines so the 3D shape stays readable."/>
         </StackPanel>
 
 
