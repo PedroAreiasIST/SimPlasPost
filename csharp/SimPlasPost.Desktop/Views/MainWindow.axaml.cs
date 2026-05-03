@@ -46,11 +46,12 @@ public partial class MainWindow : Window
                 UpdateStepLabel();
         };
 
-        // Auto-fit on every mesh load.  The VM raises MeshLoaded once at
-        // construction (for the default demo) BEFORE this subscription is
-        // attached, so trigger the handler once manually here too — its
-        // body defers to LayoutUpdated when Bounds aren't valid yet, which
-        // they aren't for the very first call (window not laid out).
+        // Auto best-view + fit on every mesh load.  The VM raises MeshLoaded
+        // once at construction (for the default demo) BEFORE this
+        // subscription is attached, so trigger the handler once manually
+        // here too — its body defers to LayoutUpdated when Bounds aren't
+        // valid yet, which they aren't for the very first call (window
+        // not laid out).
         _vm.MeshLoaded += AutoFitOnMeshLoad;
         AutoFitOnMeshLoad();
 
@@ -61,7 +62,7 @@ public partial class MainWindow : Window
     {
         if (Viewport.Bounds.Width > 1 && Viewport.Bounds.Height > 1)
         {
-            _vm.ZoomToFit(Viewport.Bounds.Width, Viewport.Bounds.Height);
+            _vm.OptimalView(Viewport.Bounds.Width, Viewport.Bounds.Height);
             return;
         }
         // Defer until the viewport has been laid out at least once.
@@ -72,7 +73,7 @@ public partial class MainWindow : Window
             if (Viewport.Bounds.Width > 1 && Viewport.Bounds.Height > 1)
             {
                 Viewport.LayoutUpdated -= handler!;
-                _vm.ZoomToFit(Viewport.Bounds.Width, Viewport.Bounds.Height);
+                _vm.OptimalView(Viewport.Bounds.Width, Viewport.Bounds.Height);
             }
         };
         Viewport.LayoutUpdated += handler;
