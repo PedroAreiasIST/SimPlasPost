@@ -17,11 +17,12 @@ public static class DimensionLayout
     /// frame as the input dimensions; used to choose which side of each
     /// dimension line the leader extends to.</param>
     /// <param name="offsetPx">Extension distance from the mesh edge, in
-    /// pixels.  28 px gives enough breathing room above the silhouette
-    /// without crowding the colour bar on the right.</param>
+    /// pixels.  40 px gives the larger drafting-style labels enough
+    /// breathing room above the silhouette without crowding the colour
+    /// bar on the right.</param>
     public static List<DimensionScreen> Project(
         IList<DimensionWorld> dims, CameraState cam, double orthoHH,
-        int w, int h, double[] bboxCenterWorld, double offsetPx = 28.0)
+        int w, int h, double[] bboxCenterWorld, double offsetPx = 40.0)
     {
         var result = new List<DimensionScreen>();
         if (dims == null || dims.Count == 0) return result;
@@ -48,10 +49,13 @@ public static class DimensionLayout
 
                 double[] dim1 = { sa[0] + nx * offsetPx, sa[1] + ny * offsetPx };
                 double[] dim2 = { sb[0] + nx * offsetPx, sb[1] + ny * offsetPx };
+                // Push the label out one cap-height above the dim line so
+                // it never clips the heavier 1.6 px stroke of the dim line
+                // itself; the value scales loosely with the new font size.
                 double[] labelPos =
                 {
-                    (dim1[0] + dim2[0]) * 0.5 + nx * 9,
-                    (dim1[1] + dim2[1]) * 0.5 + ny * 9,
+                    (dim1[0] + dim2[0]) * 0.5 + nx * 14,
+                    (dim1[1] + dim2[1]) * 0.5 + ny * 14,
                 };
                 double rot = Math.Atan2(dim2[1] - dim1[1], dim2[0] - dim1[0]) * 180.0 / Math.PI;
                 if (rot > 90) rot -= 180;
@@ -75,7 +79,7 @@ public static class DimensionLayout
 
                 double[] a = { sc[0] - r, sc[1] };
                 double[] b = { sc[0] + r, sc[1] };
-                double[] labelPos = { sc[0] + r + 8, sc[1] - 6 };
+                double[] labelPos = { sc[0] + r + 12, sc[1] - 10 };
                 result.Add(new DimensionScreen
                 {
                     Kind = d.Kind, Label = d.Label, Value = d.Value,

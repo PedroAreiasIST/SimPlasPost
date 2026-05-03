@@ -297,15 +297,17 @@ public static class PdfExporter
     private static void DrawDimensions(StringBuilder stream, ExportScene scene)
     {
         const double inkR = 0.13;
-        const double labelFontSize = 11.5;
+        const double labelFontSize = 16;
         // Times-Bold metric assumed elsewhere in this exporter
         const double avgCharW = labelFontSize * AvgCharWidth;
 
         foreach (var d in scene.Dimensions)
         {
             // Extension lines (linear only — diameter rules go straight
-            // through the centre, no leaders needed).
-            stream.AppendLine($"{F(inkR)} {F(inkR)} {F(inkR)} RG 0.5 w 1 J");
+            // through the centre, no leaders needed).  Stroke widths are
+            // chosen to match the heavier overlay pens so screen + PDF
+            // read alike at typical export sizes.
+            stream.AppendLine($"{F(inkR)} {F(inkR)} {F(inkR)} RG 1 w 1 J");
             if (d.Kind == DimensionKind.Linear)
             {
                 stream.AppendLine($"{F2(d.Ext1[0])} {F2(scene.H - d.Ext1[1])} m {F2(d.Dim1[0])} {F2(scene.H - d.Dim1[1])} l S");
@@ -313,7 +315,7 @@ public static class PdfExporter
             }
 
             // Dimension line (slightly heavier).
-            stream.AppendLine($"0.7 w {F2(d.Dim1[0])} {F2(scene.H - d.Dim1[1])} m {F2(d.Dim2[0])} {F2(scene.H - d.Dim2[1])} l S 0.5 w");
+            stream.AppendLine($"1.6 w {F2(d.Dim1[0])} {F2(scene.H - d.Dim1[1])} m {F2(d.Dim2[0])} {F2(scene.H - d.Dim2[1])} l S 1 w");
 
             // Filled arrowheads (PDF y is up — flip y components by
             // negating the cross-arrow offset's y term so the triangles
@@ -325,7 +327,7 @@ public static class PdfExporter
             if (L > 1e-6)
             {
                 double ux = dx / L, uy = dy / L;
-                const double hL = 7, hW = 2.6;
+                const double hL = 11, hW = 4.0;
                 stream.AppendLine($"{F(inkR)} {F(inkR)} {F(inkR)} rg");
                 // Arrow at Dim1 (pointing inward, +u direction).
                 double t1x = d.Dim1[0], t1y = scene.H - d.Dim1[1];
