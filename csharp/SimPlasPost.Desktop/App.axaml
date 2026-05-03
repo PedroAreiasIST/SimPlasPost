@@ -79,5 +79,27 @@
             <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="FontSize" Value="13"/>
         </Style>
+
+        <!-- View-preset buttons.  Larger surface, axis colour-coded so the
+             reader's eye matches them to the screen triad's red/green/blue
+             X₁ / X₂ / X₃ arrows without having to read the label. -->
+        <Style Selector="Button.ortho">
+            <Setter Property="MinHeight" Value="30"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="Padding" Value="6,2"/>
+        </Style>
+        <Style Selector="Button.ortho-x"><Setter Property="Foreground" Value="#B0202C"/></Style>
+        <Style Selector="Button.ortho-y"><Setter Property="Foreground" Value="#1F8A1F"/></Style>
+        <Style Selector="Button.ortho-z"><Setter Property="Foreground" Value="#1A52C8"/></Style>
+
+        <!-- 90° rotation buttons.  Single-glyph labels at a larger point
+             size so the rotation arrow reads clearly at a glance. -->
+        <Style Selector="Button.rot90">
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="FontSize" Value="20"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="Padding" Value="4,0"/>
+        </Style>
     </Application.Styles>
 </Application>

@@ -91,13 +91,28 @@
                 ToolTip.Tip="Rotate to the most informative orientation (viewpoint-entropy maximisation), then zoom to fit."/>
         <Button Content="Zoom to Fit" Click="OnZoomToFit" HorizontalAlignment="Stretch" Margin="0,0,0,4"/>
         <TextBlock Text="Orthographic axes" Classes="hint" Margin="0,0,0,2"/>
-        <UniformGrid Columns="3" Margin="0,0,0,4">
-          <Button Content="+X" Click="OnPresetView" Tag="pX"/>
-          <Button Content="-X" Click="OnPresetView" Tag="nX"/>
-          <Button Content="+Y" Click="OnPresetView" Tag="pY"/>
-          <Button Content="-Y" Click="OnPresetView" Tag="nY"/>
-          <Button Content="+Z" Click="OnPresetView" Tag="pZ"/>
-          <Button Content="-Z" Click="OnPresetView" Tag="nZ"/>
+        <!-- Two-row 3-col grid: + variants on top, - variants below.
+             Each column is one cardinal axis, colour-coded to match the
+             on-canvas triad (X red, Y green, Z blue). -->
+        <UniformGrid Columns="3" Rows="2" Margin="0,0,0,4">
+          <Button Content="+X₁" Classes="ortho ortho-x" Click="OnPresetView" Tag="pX"/>
+          <Button Content="+X₂" Classes="ortho ortho-y" Click="OnPresetView" Tag="pY"/>
+          <Button Content="+X₃" Classes="ortho ortho-z" Click="OnPresetView" Tag="pZ"/>
+          <Button Content="−X₁" Classes="ortho ortho-x" Click="OnPresetView" Tag="nX"/>
+          <Button Content="−X₂" Classes="ortho ortho-y" Click="OnPresetView" Tag="nY"/>
+          <Button Content="−X₃" Classes="ortho ortho-z" Click="OnPresetView" Tag="nZ"/>
+        </UniformGrid>
+        <!-- 90° rotation buttons.  Pre-multiplying the camera matrix by a
+             rotation around its view-space Z (forward) cycles through the
+             four "up" orientations of any axis-aligned view; combined with
+             the 6 orthographic-axis presets above, every axis-aligned
+             orthogonal projection (24 in total) is reachable. -->
+        <TextBlock Text="Rotate view (90°)" Classes="hint" Margin="0,2,0,2"/>
+        <UniformGrid Columns="2" Margin="0,0,0,4">
+          <Button Content="↺" Classes="rot90" Click="OnRollView" Tag="rollCCW"
+                  ToolTip.Tip="Rotate the view 90° counter-clockwise around the current view axis."/>
+          <Button Content="↻" Classes="rot90" Click="OnRollView" Tag="rollCW"
+                  ToolTip.Tip="Rotate the view 90° clockwise around the current view axis."/>
         </UniformGrid>
         <TextBlock Text="Isometric" Classes="hint" Margin="0,0,0,2"/>
         <UniformGrid Columns="4" Margin="0,0,0,4">

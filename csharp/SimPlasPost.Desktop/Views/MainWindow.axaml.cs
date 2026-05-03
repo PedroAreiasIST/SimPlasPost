@@ -528,6 +528,32 @@ public partial class MainWindow : Window
         if (presets.TryGetValue(tag, out var p)) _vm.SetPresetView(p);
     }
 
+    /// <summary>
+    /// Roll the camera 90° around its current view (forward) axis.
+    /// Pre-multiplying the camera's world→view matrix by a rotation about
+    /// view-space Z preserves the forward direction (the rotation axis)
+    /// while cycling the up / right basis through their four 90°
+    /// orientations.  Combined with the 6 orthographic-axis presets, this
+    /// makes every axis-aligned orthogonal projection — all 24 rotational
+    /// symmetries of the cube — reachable in at most four clicks.
+    /// </summary>
+    private void OnRollView(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string tag) return;
+        // Sign convention: ↺ rotates the visible image counter-clockwise
+        // (the camera frame rolls clockwise from an outside observer).
+        double angle = tag switch
+        {
+            "rollCCW" =>  Math.PI / 2,
+            "rollCW"  => -Math.PI / 2,
+            _ => 0,
+        };
+        if (angle == 0) return;
+        var roll = CameraParams.RotAxis(0, 0, 1, angle);
+        _vm.Camera.Rot = CameraParams.Mul(roll, _vm.Camera.Rot);
+        _vm.InvalidateScene();
+    }
+
     // ─── Saved views ───
     private void OnSaveView(object? sender, RoutedEventArgs e)
     {
