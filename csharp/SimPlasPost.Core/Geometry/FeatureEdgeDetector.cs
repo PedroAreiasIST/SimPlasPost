@@ -6,12 +6,23 @@ namespace SimPlasPost.Core.Geometry;
 public static class FeatureEdgeDetector
 {
     /// <summary>
-    /// Extract feature edges from boundary faces using a dihedral angle threshold.
-    /// Returns flat array of positions: [ax, ay, az, bx, by, bz, ...] (6 doubles per edge).
+    /// Extract feature edges from boundary faces using a dihedral-angle
+    /// threshold expressed as the angle BETWEEN the two adjacent face
+    /// normals.  An edge is kept when that angle is strictly greater
+    /// than <paramref name="angleDeg"/>:
+    ///   • angle = atan2(|n₁ × n₂|, n₁ · n₂)  for unit normals.
+    /// Using atan2 (rather than acos(dot) or dot &lt; cos(θ)) keeps the
+    /// classifier numerically robust on near-flat surfaces where the
+    /// dot product is close to 1 and the cosine comparison loses
+    /// significant precision.
+    ///
+    /// Returns a flat array of positions: [ax, ay, az, bx, by, bz, ...]
+    /// (6 doubles per edge, packed for the GL line-list / PDF stroke
+    /// pipelines).
     /// </summary>
     public static double[] Extract(List<int[]> bfaces, double[][] dp, double angleDeg = 20.0)
     {
-        double cosThresh = Math.Cos(angleDeg * Math.PI / 180.0);
+        double angleThresh = angleDeg * Math.PI / 180.0;
 
         // Compute face normals
         var fNormals = new Vec3[bfaces.Count];
@@ -58,8 +69,12 @@ public static class FeatureEdgeDetector
             {
                 var n1 = fNormals[fis[0]];
                 var n2 = fNormals[fis[1]];
+                // angle between unit normals = atan2(|n₁ × n₂|, n₁ · n₂);
+                // numerically stable across the full [0, π] range.
                 double dot = Vec3.Dot(n1, n2);
-                if (dot < cosThresh) keep = true;
+                var cross = Vec3.Cross(n1, n2);
+                double angle = Math.Atan2(cross.Length, dot);
+                if (angle > angleThresh) keep = true;
             }
 
             if (keep)

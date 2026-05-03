@@ -416,7 +416,15 @@ public class MeshGlSurface : OpenGlControlBase
 
             int subdivN = 1;
             double[]? tArr = null;
-            if (!useElemColor && !whiteFaces && fv != null && !isPerElement)
+            // Subdivision only matters for the per-node Turbo gradient
+            // shading.  In Geometry mode the per-tri-vertex colours are
+            // overwritten with Lambert grayscale every frame anyway, so
+            // refining wastes work AND introduces extra nodes whose
+            // entries in _normX/Y/Z don't exist (they're sized to the
+            // pre-subdivision _nVerts) — accessing them in
+            // ProjectAndUpload's per-frame lighting throws out-of-range
+            // and the swallowed exception leaves the screen frozen.
+            if (!useElemColor && !whiteFaces && !geometryMode && fv != null && !isPerElement)
             {
                 tArr = new double[n];
                 double tMin = double.MaxValue, tMax = double.MinValue;
