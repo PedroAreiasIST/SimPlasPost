@@ -366,6 +366,23 @@ public class MainViewModel : INotifyPropertyChanged
         UserMax = "";
     }
 
+    // ─── Best view ───
+    /// <summary>
+    /// Pick the most informative viewing direction via Vázquez's
+    /// viewpoint entropy and zoom-to-fit at that orientation.  Resets
+    /// any pan offset so the mesh ends up centred for the new camera
+    /// (otherwise an old translation in world space could throw the
+    /// just-found framing off after the zoom).
+    /// </summary>
+    public void OptimalView(double w, double h)
+    {
+        if (MeshData == null || w < 1 || h < 1) return;
+        var fwd = BestViewFinder.FindForward(MeshData);
+        Camera.Rot = CameraParams.RotFromForward(fwd[0], fwd[1], fwd[2]);
+        Camera.Tx = 0; Camera.Ty = 0; Camera.Tz = 0;
+        ZoomToFit(w, h);
+    }
+
     // ─── Zoom to fit ───
     /// <summary>
     /// Fit the mesh in the live viewport's available drawing area.  When a

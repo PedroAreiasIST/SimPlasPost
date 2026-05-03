@@ -57,6 +57,31 @@ public class CameraParams
         return new[] { rx, ry, rz, ux, uy, uz, fx, fy, fz };
     }
 
+    /// <summary>
+    /// Build a rotation matrix from a viewing direction (the unit vector
+    /// the camera looks along).  Right is forward×worldUp, up is
+    /// right×forward; falls back to a different world-up at the poles
+    /// to avoid a degenerate cross product.  Useful when the caller
+    /// already has a chosen forward (e.g. <c>BestViewFinder</c>) and
+    /// just needs a sensibly-oriented camera frame around it.
+    /// </summary>
+    public static double[] RotFromForward(double fx, double fy, double fz)
+    {
+        double l = Math.Sqrt(fx * fx + fy * fy + fz * fz);
+        if (l < 1e-12) return Identity();
+        fx /= l; fy /= l; fz /= l;
+
+        double ux = 0, uy = 1, uz = 0;
+        if (Math.Abs(fx * ux + fy * uy + fz * uz) > 0.99) { ux = 0; uy = 0; uz = -1; }
+
+        double rx = fy * uz - fz * uy, ry = fz * ux - fx * uz, rz = fx * uy - fy * ux;
+        double rl = Math.Sqrt(rx * rx + ry * ry + rz * rz);
+        rx /= rl; ry /= rl; rz /= rl;
+
+        ux = ry * fz - rz * fy; uy = rz * fx - rx * fz; uz = rx * fy - ry * fx;
+        return new[] { rx, ry, rz, ux, uy, uz, fx, fy, fz };
+    }
+
     public static CameraParams For2D() => new()
     {
         Rot = RotFromAngles(0, Math.PI / 2), Dist = 1.5,
