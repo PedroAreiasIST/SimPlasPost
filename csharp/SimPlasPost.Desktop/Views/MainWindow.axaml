@@ -35,7 +35,7 @@
              unreadable), so the row is hidden in that configuration. -->
         <StackPanel x:Name="PnlPlainOptions" IsVisible="True" Margin="0,4,0,0">
           <CheckBox x:Name="CbPlainMeshLines"     Content="Mesh lines"     IsChecked="True" Click="OnPlainMeshLinesChanged"/>
-          <CheckBox x:Name="CbPlainGeometryEdges" Content="Geometry edges" IsChecked="True" Click="OnPlainGeometryEdgesChanged"/>
+          <CheckBox x:Name="CbPlainGeometryEdges" Content="Geometry edges" IsChecked="False" IsEnabled="False" Click="OnPlainGeometryEdgesChanged"/>
           <CheckBox x:Name="CbPlainLighting"      Content="Lighting"       IsChecked="True" Click="OnPlainLightingChanged"/>
         </StackPanel>
 
