@@ -390,12 +390,22 @@ public partial class MainWindow : Window
 
     private void OnPlainMeshLinesChanged(object? sender, RoutedEventArgs e)
     {
-        if (_vm != null) _vm.ShowPlainMeshLines = CbPlainMeshLines.IsChecked == true;
+        if (_vm == null) return;
+        _vm.ShowPlainMeshLines = CbPlainMeshLines.IsChecked == true;
+        // Lighting is only user-controllable when mesh lines are visible.
+        // With mesh lines off the renderer forces lighting on, so hide
+        // the checkbox to keep the UI honest.
+        CbPlainLighting.IsVisible = _vm.ShowPlainMeshLines;
     }
 
     private void OnPlainGeometryEdgesChanged(object? sender, RoutedEventArgs e)
     {
         if (_vm != null) _vm.ShowPlainGeometryEdges = CbPlainGeometryEdges.IsChecked == true;
+    }
+
+    private void OnPlainLightingChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_vm != null) _vm.ShowPlainLightingPref = CbPlainLighting.IsChecked == true;
     }
 
     private void OnContourNChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
