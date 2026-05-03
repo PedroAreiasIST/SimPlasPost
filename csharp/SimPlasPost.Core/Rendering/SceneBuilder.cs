@@ -15,8 +15,7 @@ public static class SceneBuilder
         CameraParams camParams, int w, int h, DisplayMode dMode, int contourN,
         double? eMinOverride, double? eMaxOverride,
         bool showContourLabels = false,
-        bool showMeshLines = true,
-        bool showGeometryContours = false)
+        bool showMeshLines = true)
     {
         if (meshData == null) return null;
 
@@ -253,14 +252,21 @@ public static class SceneBuilder
             }
         }
 
-        // Feature (silhouette) edges, drawn whenever iso-contour lines
-        // are active — i.e. classic Lines mode, or Geometry mode with
-        // the optional contour overlay enabled.
-        bool linesContent = effectiveMode == DisplayMode.Lines ||
-                            (effectiveMode == DisplayMode.Geometry && showGeometryContours);
-        if (linesContent)
+        // Feature (silhouette / sharp-fold) edges:
+        //   • Lines mode — same long-standing default of 20° dihedral,
+        //     keeping silhouette + crease lines as a backdrop for the
+        //     iso-contours that follow.
+        //   • Geometry mode — 30° dihedral, the user-facing CAD-style
+        //     view: only reasonably sharp creases survive, so a smooth
+        //     organic mesh shows just its silhouette while a hard-
+        //     edged engineering part keeps its crease lines.
+        bool emitFeatureEdges = effectiveMode == DisplayMode.Lines ||
+                                effectiveMode == DisplayMode.Geometry;
+        bool emitContours = effectiveMode == DisplayMode.Lines;
+        if (emitFeatureEdges)
         {
-            var featPos = FeatureEdgeDetector.Extract(bfaces, dp);
+            double angleDeg = effectiveMode == DisplayMode.Geometry ? 30.0 : 20.0;
+            var featPos = FeatureEdgeDetector.Extract(bfaces, dp, angleDeg);
             for (int k = 0; k < featPos.Length; k += 6)
             {
                 var a3 = new[] { featPos[k], featPos[k + 1], featPos[k + 2] };
@@ -279,7 +285,7 @@ public static class SceneBuilder
         // same arc-midpoints as the on-screen overlay.
         var contours = new List<ProjectedContour>();
         var labelCandidates = new List<ContourLabelWorld>();
-        if (linesContent && fv != null && !isPerElement)
+        if (emitContours && fv != null && !isPerElement)
         {
             var rawSegs = ContourGenerator.ComputeSegments(bfaces, dp, fv, efMin, efMax, contourN);
             var polylines = ContourGenerator.SmoothPolylines(rawSegs, 2);
@@ -363,7 +369,14 @@ public static class SceneBuilder
         var lp = LinePreset.Auto(nEdges);
 
         // Wireframe mode: no color bar, no field coloring
-        string? displayFieldName = dMode == DisplayMode.Wireframe ? null : activeField;
+        // The PDF colour bar is keyed off scene.FieldName.  Wireframe and
+        // Geometry are both purely structural views with no field
+        // shading, so we suppress the field name (and therefore the bar)
+        // in both, mirroring the on-screen MeshOverlay behaviour.
+        string? displayFieldName = (dMode == DisplayMode.Wireframe ||
+                                    dMode == DisplayMode.Geometry)
+            ? null
+            : activeField;
 
         // Stand-alone Bar2 / Point1 elements: always exported, regardless
         // of display mode.  Color comes from the active scalar field at the

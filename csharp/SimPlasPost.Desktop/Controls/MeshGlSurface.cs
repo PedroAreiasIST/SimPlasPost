@@ -43,7 +43,6 @@ public class MeshGlSurface : OpenGlControlBase
     private int _cachedContourN = -1;
     private bool _cachedShowLabels;
     private bool _cachedShowMeshLines = true;
-    private bool _cachedShowGeometryContours;
     private bool _geomDirty = true;
 
     private float[] _posX = Array.Empty<float>();
@@ -112,8 +111,7 @@ public class MeshGlSurface : OpenGlControlBase
         _vm.CurrentStep != _cachedStep ||
         _vm.ContourN != _cachedContourN ||
         _vm.ShowContourLabels != _cachedShowLabels ||
-        _vm.ShowMeshLines != _cachedShowMeshLines ||
-        _vm.ShowGeometryContours != _cachedShowGeometryContours);
+        _vm.ShowMeshLines != _cachedShowMeshLines);
 
     protected override void OnOpenGlInit(GlInterface gl)
     {
@@ -234,7 +232,6 @@ public class MeshGlSurface : OpenGlControlBase
         _cachedContourN = _vm.ContourN;
         _cachedShowLabels = _vm.ShowContourLabels;
         _cachedShowMeshLines = _vm.ShowMeshLines;
-        _cachedShowGeometryContours = _vm.ShowGeometryContours;
 
         var ns = mesh.Nodes;
         float mnX = float.MaxValue, mnY = float.MaxValue, mnZ = float.MaxValue;
@@ -479,27 +476,35 @@ public class MeshGlSurface : OpenGlControlBase
             _nVerts = newCount;
         }
 
-        // Iso-contour lines are emitted in classic Lines mode and, when
-        // the user has opted into them, in Geometry mode too (so the
-        // Lambert-shaded geometry view can be overlaid with field
-        // iso-lines for engineering "shaded contour" plots).
-        bool emitContours = effectiveMode == DisplayMode.Lines ||
-                            (effectiveMode == DisplayMode.Geometry && _vm.ShowGeometryContours);
-        if (emitContours)
+        // Feature-edge selection threshold (degrees of dihedral fold):
+        //   Lines mode:    20° — same as the long-standing default, biased
+        //                  toward keeping silhouette + sharper folds.
+        //   Geometry mode: 30° — the user-facing CAD-style view; only the
+        //                  reasonably sharp creases survive, so a smooth
+        //                  organic mesh (Bunny etc.) shows just a clean
+        //                  silhouette while a hard-edged engineering part
+        //                  (Fandisk, Rocker Arm) keeps its crease lines.
+        bool emitFeatureEdges = effectiveMode == DisplayMode.Lines ||
+                                effectiveMode == DisplayMode.Geometry;
+        bool emitContourLines = effectiveMode == DisplayMode.Lines;
+
+        if (emitFeatureEdges)
         {
             var dp = new double[_nVerts][];
             for (int i = 0; i < _nVerts; i++)
                 dp[i] = new double[] { _posX[i], _posY[i], _posZ[i] };
 
-            var fed = FeatureEdgeDetector.Extract(bfaces, dp);
+            double angleDeg = effectiveMode == DisplayMode.Geometry ? 30.0 : 20.0;
+            var fed = FeatureEdgeDetector.Extract(bfaces, dp, angleDeg);
             _featEdgePos = new float[fed.Length];
             for (int i = 0; i < fed.Length; i++) _featEdgePos[i] = (float)fed[i];
 
             // Default: clear any prior label state.  We re-populate it below
-            // when both a field is active AND the user requested labels.
+            // only in Lines mode when both a field is active AND the user
+            // requested labels.  Geometry mode never carries iso-line labels.
             _vm.ContourLabelsWorld.Clear();
 
-            if (fv != null)
+            if (emitContourLines && fv != null)
             {
                 int contourN = Math.Max(1, _vm.ContourN);
                 var raw = ContourGenerator.ComputeSegments(bfaces, dp, fv, efMin, efMax, contourN);

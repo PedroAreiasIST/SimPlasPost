@@ -43,11 +43,15 @@ public class MeshOverlay : Control
         if (_vm == null) return;
         var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
 
-        if (!string.IsNullOrEmpty(_vm.ActiveField) && _vm.DisplayMode_ != DisplayMode.Wireframe)
+        // Color bar is meaningful in Plot and Lines modes (where a scalar
+        // field actually colours the geometry).  Wireframe and Geometry
+        // are both purely structural views — drop the bar.
+        if (!string.IsNullOrEmpty(_vm.ActiveField) &&
+            _vm.DisplayMode_ != DisplayMode.Wireframe &&
+            _vm.DisplayMode_ != DisplayMode.Geometry)
             DrawColorBar(context, bounds);
-        // Contour labels are drawn after the GL surface but BEFORE the
-        // axis triad / info text, so the latter always stay legible at
-        // the corners regardless of where iso-lines cluster.
+        // Contour labels: only meaningful in Lines mode (we don't draw
+        // iso-contour lines in any other mode).
         DrawContourLabels(context, bounds);
         DrawTriad(context, bounds);
         if (!string.IsNullOrEmpty(_vm.Info))
@@ -83,12 +87,9 @@ public class MeshOverlay : Control
     {
         if (_vm == null) return;
         if (!_vm.ShowContourLabels) return;
-        // Labels apply wherever iso-contour lines are drawn: Lines mode
-        // unconditionally, or Geometry mode when ShowGeometryContours
-        // is on.
-        bool linesOn = _vm.DisplayMode_ == DisplayMode.Lines ||
-                       (_vm.DisplayMode_ == DisplayMode.Geometry && _vm.ShowGeometryContours);
-        if (!linesOn) return;
+        // Labels are meaningful only in Lines mode (the only mode that
+        // draws iso-contour lines on screen).
+        if (_vm.DisplayMode_ != DisplayMode.Lines) return;
         if (_vm.ContourLabelsWorld.Count == 0) return;
         if (string.IsNullOrEmpty(_vm.ActiveField)) return;
 
