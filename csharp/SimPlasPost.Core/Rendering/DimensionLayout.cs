@@ -69,23 +69,67 @@ public static class DimensionLayout
                     LabelPos = labelPos, Rot = rot,
                 });
             }
-            else if (d.Kind == DimensionKind.Diameter)
+            else if (d.Kind == DimensionKind.Diameter || d.Kind == DimensionKind.SphericalDiameter)
             {
-                var sc = Camera.Project(d.P1, cam, orthoHH, w, h);
-                var se = Camera.Project(d.P2, cam, orthoHH, w, h);
-                double dx = se[0] - sc[0], dy = se[1] - sc[1];
-                double r = Math.Sqrt(dx * dx + dy * dy);
-                if (r < 6) continue;
+                // Pick a world-space chord direction.  For 3D cylinders
+                // (Axis non-zero) the rim plane is fixed, so the chord
+                // most orthogonal to the view direction is axis × view.
+                // For 2D circles and spheres we have a free choice — use
+                // the camera's Right axis so the chord projects to a
+                // horizontal segment regardless of orientation.
+                bool hasAxis = d.Axis != null && d.Axis.Length == 3 &&
+                    (d.Axis[0] * d.Axis[0] + d.Axis[1] * d.Axis[1] + d.Axis[2] * d.Axis[2]) > 0.25;
+                double pwx, pwy, pwz;
+                if (hasAxis)
+                {
+                    double axx = d.Axis![0], axy = d.Axis[1], axz = d.Axis[2];
+                    var fwd = cam.Forward;
+                    pwx = axy * fwd.Z - axz * fwd.Y;
+                    pwy = axz * fwd.X - axx * fwd.Z;
+                    pwz = axx * fwd.Y - axy * fwd.X;
+                    double pl = Math.Sqrt(pwx * pwx + pwy * pwy + pwz * pwz);
+                    if (pl < 1e-3)
+                    {
+                        // Looking down the cylinder axis: any in-plane
+                        // perp is fine.  Pick a world cardinal perp.
+                        if (Math.Abs(axx) < 0.9) { pwx = 1; pwy = 0; pwz = 0; }
+                        else                     { pwx = 0; pwy = 1; pwz = 0; }
+                        // Re-orthogonalise: subtract component along axis.
+                        double dot = pwx * axx + pwy * axy + pwz * axz;
+                        pwx -= dot * axx; pwy -= dot * axy; pwz -= dot * axz;
+                        pl = Math.Sqrt(pwx * pwx + pwy * pwy + pwz * pwz);
+                    }
+                    pwx /= pl; pwy /= pl; pwz /= pl;
+                }
+                else
+                {
+                    pwx = cam.Right.X; pwy = cam.Right.Y; pwz = cam.Right.Z;
+                }
 
-                double[] a = { sc[0] - r, sc[1] };
-                double[] b = { sc[0] + r, sc[1] };
-                double[] labelPos = { sc[0] + r + 12, sc[1] - 10 };
+                // Compute the rim points one radius either side of the
+                // centre so the dimension line goes diameter-wide.
+                double rW = d.Radius;
+                if (rW <= 0) continue;
+                double[] aWorld = { d.P1[0] - pwx * rW, d.P1[1] - pwy * rW, d.P1[2] - pwz * rW };
+                double[] bWorld = { d.P1[0] + pwx * rW, d.P1[1] + pwy * rW, d.P1[2] + pwz * rW };
+                var sa = Camera.Project(aWorld, cam, orthoHH, w, h);
+                var sb = Camera.Project(bWorld, cam, orthoHH, w, h);
+                double dx = sb[0] - sa[0], dy = sb[1] - sa[1];
+                double L = Math.Sqrt(dx * dx + dy * dy);
+                if (L < 12) continue; // rim collapsed under projection
+
+                double ux = dx / L, uy = dy / L;
+                double[] labelPos = { sb[0] + ux * 14, sb[1] + uy * 14 };
+                double rot = Math.Atan2(uy, ux) * 180.0 / Math.PI;
+                if (rot > 90) rot -= 180;
+                else if (rot < -90) rot += 180;
+
                 result.Add(new DimensionScreen
                 {
                     Kind = d.Kind, Label = d.Label, Value = d.Value,
-                    Ext1 = new[] { sc[0], sc[1] }, Ext2 = new[] { sc[0], sc[1] },
-                    Dim1 = a, Dim2 = b,
-                    LabelPos = labelPos, Rot = 0,
+                    Ext1 = new[] { sa[0], sa[1] }, Ext2 = new[] { sb[0], sb[1] },
+                    Dim1 = new[] { sa[0], sa[1] }, Dim2 = new[] { sb[0], sb[1] },
+                    LabelPos = labelPos, Rot = rot,
                 });
             }
         }
