@@ -349,23 +349,31 @@ public static class PdfExporter
             // enough to a diameter sign that publication readers pattern-
             // match it.  Width is approximated from average char width so
             // the centre matches the live overlay without metrics access.
+            string val = DimensionLayout.FormatValue(d.Value);
             string txtForWidth, txtForPdf;
-            switch (d.Kind)
+            if (d.Kind == DimensionKind.SphericalDiameter)
             {
-                case DimensionKind.Diameter:
-                    txtForWidth = $"O {DimensionLayout.FormatValue(d.Value)}";
-                    // \330 is Ø (closest WinAnsi glyph to ⌀).
-                    txtForPdf   = $"\\330 {DimensionLayout.FormatValue(d.Value)}";
-                    break;
-                case DimensionKind.SphericalDiameter:
-                    txtForWidth = $"SO {DimensionLayout.FormatValue(d.Value)}";
-                    // ISO drafting "S Ø" prefix → "S\330 ".
-                    txtForPdf   = $"S\\330 {DimensionLayout.FormatValue(d.Value)}";
-                    break;
-                default:
-                    txtForWidth = $"{d.Label} = {DimensionLayout.FormatValue(d.Value)}";
-                    txtForPdf   = txtForWidth;
-                    break;
+                txtForWidth = $"SO {val}";
+                // ISO drafting "S Ø" prefix → "S\330 ".
+                txtForPdf   = $"S\\330 {val}";
+            }
+            else if (d.Kind == DimensionKind.Diameter && (d.Label.StartsWith("R") || d.Label.StartsWith("r")))
+            {
+                // Arc radius: value is radius, not diameter — use the
+                // label (R/r) directly without the diameter symbol.
+                txtForWidth = $"{d.Label} = {val}";
+                txtForPdf   = txtForWidth;
+            }
+            else if (d.Kind == DimensionKind.Diameter)
+            {
+                txtForWidth = $"O {val}";
+                // \330 is Ø (closest WinAnsi glyph to ⌀).
+                txtForPdf   = $"\\330 {val}";
+            }
+            else
+            {
+                txtForWidth = $"{d.Label} = {val}";
+                txtForPdf   = txtForWidth;
             }
             double textW = txtForWidth.Length * avgCharW;
             // Negate the screen-frame angle so the visual rotation matches

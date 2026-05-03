@@ -94,25 +94,27 @@ public static class DimensionExtractor
             });
         }
 
-        // 2D circular holes.
+        // 2D circular holes plus outer-boundary arcs (notch radii, fillet
+        // radii, partial circles on the silhouette).
         if (!is3D)
-            AppendCircularHoles2D(meshData, ns, dims, W);
+            AppendCircularHoles2D(meshData, ns, dims, W, mnX, mnY);
 
         // 3D features: spheres + cylindrical holes.
         if (is3D)
         {
-            AppendSphere3D(meshData, ns, dims, W);
-            AppendCylindricalHoles3D(meshData, ns, dims, W);
+            AppendSphere3D(meshData, ns, dims, W, mnX, mnY, mnZ);
+            AppendCylindricalHoles3D(meshData, ns, dims, W, mnX, mnY, mnZ);
         }
 
         return dims;
     }
 
     private static void AppendCircularHoles2D(MeshData meshData, double[][] ns,
-        List<DimensionWorld> dims, Func<double, double, double, double[]> W)
+        List<DimensionWorld> dims, Func<double, double, double, double[]> W,
+        double mnX, double mnY)
     {
         var loops = ExtractBoundaryLoops2D(meshData.Elements);
-        if (loops.Count <= 1) return;
+        if (loops.Count == 0) return;
 
         // Mean edge length filters out near-singular fits.
         double totalLen = 0; int totalEdges = 0;
@@ -128,7 +130,14 @@ public static class DimensionExtractor
         }
         double meanEdge = totalEdges > 0 ? totalLen / totalEdges : 0;
 
-        var fits = new List<(double cx, double cy, double r)>();
+        // Pass 1: full-loop circle fit on every interior loop (loops[0] is
+        // the outer boundary, sorted by |signed area| descending in
+        // ExtractBoundaryLoops2D).  Loops that close into a true circle
+        // become Diameter dimensions; loops that don't (slots, irregular
+        // cutouts) fall through to the sliding-window arc detector below.
+        var holeFits = new List<(double cx, double cy, double r)>();
+        var arcFits = new List<(double cx, double cy, double r, bool reentrant)>();
+        var consumedLoops = new HashSet<int>();
         for (int i = 1; i < loops.Count; i++)
         {
             var loop = loops[i];
@@ -136,9 +145,148 @@ public static class DimensionExtractor
             if (!FitCircleKasa(loop, ns, out double cx, out double cy, out double r, out double rms)) continue;
             if (r < meanEdge * 1.5) continue;
             if (rms / r > 0.05) continue;
-            fits.Add((cx, cy, r));
+            holeFits.Add((cx, cy, r));
+            consumedLoops.Add(i);
         }
-        fits.Sort((a, b) => b.r.CompareTo(a.r));
+
+        // Pass 2: sliding-window arc detector on every loop (outer + any
+        // interior loop that wasn't a clean full circle).  Detects partial
+        // arcs in the silhouette: notch radii, fillet radii, half-circles
+        // on the part outline, etc.
+        for (int i = 0; i < loops.Count; i++)
+        {
+            if (consumedLoops.Contains(i)) continue;
+            DetectArcsInLoop(loops[i], ns, meanEdge, arcFits);
+        }
+
+        // Emit hole diameters with position-from-datum dimensions.  For a
+        // single hole near the bbox centre we suppress cx/cy (they carry
+        // no information beyond "centred"); for off-centre or multiple
+        // holes we always emit both so the figure is reproducible.
+        holeFits.Sort((a, b) => b.r.CompareTo(a.r));
+        EmitCircles2D(holeFits, dims, W, mnX, mnY, isHole: true, meshData);
+
+        // Emit outer-boundary / partial arcs as radius dimensions.  "R"
+        // for convex (the part bulges outward) and "r" for re-entrant
+        // (the part curves into itself, e.g. notch root) — drafting
+        // convention.
+        EmitArcs2D(arcFits, dims, W, mnX, mnY, meshData);
+    }
+
+    /// <summary>
+    /// Sliding-window arc detector: marks every vertex whose local
+    /// neighbourhood circle-fits cleanly (RMS / r &lt; 1%), groups
+    /// consecutive marked vertices into chains, refits a circle to each
+    /// chain, and labels the chain convex or re-entrant relative to the
+    /// loop's signed area (CCW outer = interior on left of tangent).
+    /// </summary>
+    private static void DetectArcsInLoop(List<int> loop, double[][] nodes, double meanEdge,
+        List<(double cx, double cy, double r, bool reentrant)> output)
+    {
+        int n = loop.Count;
+        if (n < 9) return;
+        // Window size: ~5% of the loop, clamped to [5, 25].
+        int win = Math.Clamp((int)Math.Round(n * 0.05), 5, 25);
+        if (win % 2 == 0) win++;
+        int half = win / 2;
+
+        // Loop signed area for convex/concave classification.
+        double signedArea = 0;
+        for (int i = 0; i < n; i++)
+        {
+            var a = nodes[loop[i]];
+            var b = nodes[loop[(i + 1) % n]];
+            signedArea += a[0] * b[1] - b[0] * a[1];
+        }
+        bool ccw = signedArea > 0;
+
+        var onArc = new bool[n];
+        var winList = new List<int>(win);
+        for (int i = 0; i < n; i++)
+        {
+            winList.Clear();
+            for (int k = -half; k <= half; k++) winList.Add(loop[(i + k + n) % n]);
+            if (!FitCircleKasa(winList, nodes, out double cx, out double cy, out double r, out double rms)) continue;
+            if (r < meanEdge * 1.0) continue; // arcs smaller than 1× mesh-h are noise
+            if (rms / r > 0.01) continue; // strict for sliding window
+            onArc[i] = true;
+        }
+
+        // Group consecutive on-arc vertices into chains, treating the
+        // loop circularly so arcs spanning the wrap-around still merge.
+        // Find a non-arc anchor first if one exists, else the entire
+        // loop is one big arc.
+        int anchor = -1;
+        for (int i = 0; i < n; i++) if (!onArc[i]) { anchor = i; break; }
+
+        if (anchor == -1)
+        {
+            // Whole loop is one arc: refit and emit if reasonable.
+            if (FitCircleKasa(loop, nodes, out double fcx, out double fcy, out double fr, out double frms)
+                && fr > meanEdge * 1.5 && frms / fr < 0.03)
+            {
+                bool reentrant = ClassifyReentrant(loop, nodes, n / 2, fcx, fcy, ccw);
+                output.Add((fcx, fcy, fr, reentrant));
+            }
+            return;
+        }
+
+        int idx = (anchor + 1) % n;
+        int safety = 0;
+        while (idx != anchor && safety++ < 4 * n)
+        {
+            if (!onArc[idx]) { idx = (idx + 1) % n; continue; }
+            int start = idx;
+            var chainIdx = new List<int>();
+            while (onArc[idx])
+            {
+                chainIdx.Add(loop[idx]);
+                idx = (idx + 1) % n;
+                if (idx == anchor) break;
+            }
+            int len = chainIdx.Count;
+            if (len < 5) continue;
+
+            if (!FitCircleKasa(chainIdx, nodes, out double fcx, out double fcy, out double fr, out double frms)) continue;
+            if (fr < meanEdge * 1.5) continue;
+            if (frms / fr > 0.03) continue;
+            // Reject arcs whose subtended angle is too small (slivers) —
+            // likely noise on a near-straight edge.
+            int midPos = (start + len / 2) % n;
+            bool reentrant = ClassifyReentrant(loop, nodes, midPos, fcx, fcy, ccw);
+            output.Add((fcx, fcy, fr, reentrant));
+        }
+    }
+
+    /// <summary>
+    /// Classify an arc as convex or re-entrant relative to the loop's
+    /// orientation.  CCW outer loop: interior is on the LEFT of the
+    /// tangent direction.  An arc whose centre lies on the interior side
+    /// is convex (bulges outward); an arc whose centre lies outside the
+    /// loop is re-entrant (notch root).  CW loops invert the test.
+    /// </summary>
+    private static bool ClassifyReentrant(List<int> loop, double[][] nodes, int midPos,
+        double cx, double cy, bool ccw)
+    {
+        int n = loop.Count;
+        int prevIdx = loop[(midPos - 1 + n) % n];
+        int midIdx = loop[midPos];
+        int nextIdx = loop[(midPos + 1) % n];
+        double tx = (nodes[nextIdx][0] - nodes[prevIdx][0]) * 0.5;
+        double ty = (nodes[nextIdx][1] - nodes[prevIdx][1]) * 0.5;
+        double dx = cx - nodes[midIdx][0];
+        double dy = cy - nodes[midIdx][1];
+        double cross = tx * dy - ty * dx;
+        bool centreOnLeft = cross > 0;
+        bool centreOnInteriorSide = ccw ? centreOnLeft : !centreOnLeft;
+        return !centreOnInteriorSide;
+    }
+
+    private static void EmitCircles2D(
+        List<(double cx, double cy, double r)> fits,
+        List<DimensionWorld> dims, Func<double, double, double, double[]> W,
+        double mnX, double mnY, bool isHole, MeshData meshData)
+    {
         for (int k = 0; k < fits.Count; k++)
         {
             var fit = fits[k];
@@ -149,6 +297,108 @@ public static class DimensionExtractor
                 P1 = W(fit.cx, fit.cy, 0),
                 P2 = W(fit.cx + fit.r, fit.cy, 0),
                 Radius = ComputeNormalisedRadius(meshData, fit.r),
+            });
+            EmitPositionDims(fit.cx, fit.cy, 0, mnX, mnY, double.NaN, k, fits.Count,
+                is3D: false, dims, W, meshData);
+        }
+    }
+
+    private static void EmitArcs2D(
+        List<(double cx, double cy, double r, bool reentrant)> arcs,
+        List<DimensionWorld> dims, Func<double, double, double, double[]> W,
+        double mnX, double mnY, MeshData meshData)
+    {
+        // Group near-identical arcs (same centre, same radius within 5%)
+        // — sliding-window detection on a circular feature can split a
+        // smooth arc into two halves around the wrap-around boundary.
+        var grouped = new List<(double cx, double cy, double r, bool reentrant, int count)>();
+        foreach (var a in arcs)
+        {
+            bool merged = false;
+            for (int i = 0; i < grouped.Count; i++)
+            {
+                var g = grouped[i];
+                if (Math.Abs(g.r - a.r) / Math.Max(g.r, a.r) > 0.05) continue;
+                double dx = g.cx - a.cx, dy = g.cy - a.cy;
+                if (Math.Sqrt(dx * dx + dy * dy) > g.r * 0.10) continue;
+                grouped[i] = ((g.cx * g.count + a.cx) / (g.count + 1),
+                              (g.cy * g.count + a.cy) / (g.count + 1),
+                              (g.r  * g.count + a.r)  / (g.count + 1),
+                              g.reentrant, g.count + 1);
+                merged = true; break;
+            }
+            if (!merged) grouped.Add((a.cx, a.cy, a.r, a.reentrant, 1));
+        }
+        grouped.Sort((a, b) => b.r.CompareTo(a.r));
+
+        int nR = 0, nr = 0;
+        foreach (var g in grouped)
+        {
+            string lab;
+            if (g.reentrant) { nr++; lab = grouped.Count(x => x.reentrant) == 1 ? "r" : $"r{nr}"; }
+            else             { nR++; lab = grouped.Count(x => !x.reentrant) == 1 ? "R" : $"R{nR}"; }
+            dims.Add(new DimensionWorld
+            {
+                Kind = DimensionKind.Diameter, Label = lab,
+                // Radius (not diameter) is the conventional dimension for
+                // arcs — emit the radius value but reuse the Diameter
+                // kind for renderer simplicity.  The label "R" / "r"
+                // tells the reader it's a radius, not a diameter.
+                Value = g.r,
+                P1 = W(g.cx, g.cy, 0),
+                P2 = W(g.cx + g.r, g.cy, 0),
+                Radius = ComputeNormalisedRadius(meshData, g.r),
+            });
+        }
+    }
+
+    /// <summary>
+    /// Emit Linear "cx", "cy" (and "cz" in 3D) dimensions for a feature
+    /// centre, anchored on the bounding-box minimum corner.  Suppressed
+    /// when the feature is approximately at the bbox centre — a centred
+    /// feature carries no positional information beyond "on the
+    /// centreline" and the dim line would just clutter the figure.
+    /// </summary>
+    private static void EmitPositionDims(double cx, double cy, double cz,
+        double mnX, double mnY, double mnZ, int idx, int total, bool is3D,
+        List<DimensionWorld> dims, Func<double, double, double, double[]> W,
+        MeshData meshData)
+    {
+        // Mesh bbox extent for the "is this centred?" rejection.
+        var ns = meshData.Nodes;
+        double mxX = double.MinValue, mxY = double.MinValue, mxZ = double.MinValue;
+        foreach (var p in ns)
+        {
+            if (p[0] > mxX) mxX = p[0];
+            if (p[1] > mxY) mxY = p[1];
+            if (p[2] > mxZ) mxZ = p[2];
+        }
+        double centreX = (mnX + mxX) * 0.5, centreY = (mnY + mxY) * 0.5, centreZ = (mnZ + mxZ) * 0.5;
+        double tolX = (mxX - mnX) * 0.02, tolY = (mxY - mnY) * 0.02, tolZ = (mxZ - mnZ) * 0.02;
+
+        string suf = total > 1 ? $"_{idx + 1}" : "";
+        if (Math.Abs(cx - centreX) > tolX)
+        {
+            dims.Add(new DimensionWorld
+            {
+                Kind = DimensionKind.Linear, Label = $"cx{suf}", Value = cx - mnX,
+                P1 = W(mnX, mnY, mnZ), P2 = W(cx, mnY, mnZ),
+            });
+        }
+        if (Math.Abs(cy - centreY) > tolY)
+        {
+            dims.Add(new DimensionWorld
+            {
+                Kind = DimensionKind.Linear, Label = $"cy{suf}", Value = cy - mnY,
+                P1 = W(mnX, mnY, mnZ), P2 = W(mnX, cy, mnZ),
+            });
+        }
+        if (is3D && Math.Abs(cz - centreZ) > tolZ)
+        {
+            dims.Add(new DimensionWorld
+            {
+                Kind = DimensionKind.Linear, Label = $"cz{suf}", Value = cz - mnZ,
+                P1 = W(mnX, mnY, mnZ), P2 = W(mnX, mnY, cz),
             });
         }
     }
@@ -161,7 +411,8 @@ public static class DimensionExtractor
     /// jarring than a missed sphere on a true sphere mesh.
     /// </summary>
     private static void AppendSphere3D(MeshData meshData, double[][] ns,
-        List<DimensionWorld> dims, Func<double, double, double, double[]> W)
+        List<DimensionWorld> dims, Func<double, double, double, double[]> W,
+        double mnX, double mnY, double mnZ)
     {
         bool is3D = true;
         var bfaces = BoundaryExtractor.Extract(meshData.Elements, is3D);
@@ -194,6 +445,7 @@ public static class DimensionExtractor
             P2 = W(cx + r, cy, cz),
             Radius = ComputeNormalisedRadius(meshData, r),
         });
+        EmitPositionDims(cx, cy, cz, mnX, mnY, mnZ, 0, 1, is3D: true, dims, W, meshData);
     }
 
     /// <summary>
@@ -208,23 +460,26 @@ public static class DimensionExtractor
     ///      residual is below 5% of the radius.
     /// </summary>
     private static void AppendCylindricalHoles3D(MeshData meshData, double[][] ns,
-        List<DimensionWorld> dims, Func<double, double, double, double[]> W)
+        List<DimensionWorld> dims, Func<double, double, double, double[]> W,
+        double mnX, double mnY, double mnZ)
     {
         var bfaces = BoundaryExtractor.Extract(meshData.Elements, is3D: true);
         var cycles = ExtractFeatureEdgeCycles3D(bfaces, ns, angleDeg: 35.0);
         if (cycles.Count == 0) return;
 
         // Mesh bounding-box extents perpendicular to each cardinal axis,
-        // for the "is this the outer perimeter?" rejection below.
-        double mnX = double.MaxValue, mnY = double.MaxValue, mnZ = double.MaxValue;
-        double mxX = double.MinValue, mxY = double.MinValue, mxZ = double.MinValue;
+        // for the "is this the outer perimeter?" rejection below.  The
+        // parameters mnX/mnY/mnZ shadow these so we use distinct local
+        // names for the recomputed extents.
+        double bbMnX = double.MaxValue, bbMnY = double.MaxValue, bbMnZ = double.MaxValue;
+        double bbMxX = double.MinValue, bbMxY = double.MinValue, bbMxZ = double.MinValue;
         foreach (var p in ns)
         {
-            if (p[0] < mnX) mnX = p[0]; if (p[0] > mxX) mxX = p[0];
-            if (p[1] < mnY) mnY = p[1]; if (p[1] > mxY) mxY = p[1];
-            if (p[2] < mnZ) mnZ = p[2]; if (p[2] > mxZ) mxZ = p[2];
+            if (p[0] < bbMnX) bbMnX = p[0]; if (p[0] > bbMxX) bbMxX = p[0];
+            if (p[1] < bbMnY) bbMnY = p[1]; if (p[1] > bbMxY) bbMxY = p[1];
+            if (p[2] < bbMnZ) bbMnZ = p[2]; if (p[2] > bbMxZ) bbMxZ = p[2];
         }
-        double[] bboxHalfExt = { (mxX - mnX) * 0.5, (mxY - mnY) * 0.5, (mxZ - mnZ) * 0.5 };
+        double[] bboxHalfExt = { (bbMxX - bbMnX) * 0.5, (bbMxY - bbMnY) * 0.5, (bbMxZ - bbMnZ) * 0.5 };
 
         var fits = new List<(double cx, double cy, double cz, double r, double[] axis)>();
         foreach (var cycle in cycles)
@@ -278,6 +533,8 @@ public static class DimensionExtractor
                 Radius = ComputeNormalisedRadius(meshData, fit.r),
                 Axis = fit.axis,
             });
+            EmitPositionDims(fit.cx, fit.cy, fit.cz, mnX, mnY, mnZ, k, fits.Count,
+                is3D: true, dims, W, meshData);
         }
     }
 
