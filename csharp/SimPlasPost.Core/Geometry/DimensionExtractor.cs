@@ -91,14 +91,50 @@ public static class DimensionExtractor
                 thinAxis = minIdx;
         }
 
+        // Detect features FIRST so we can decide which bounding-box
+        // extents are redundant (per the PDF's rank-based non-redundancy
+        // rule: "A new dimension is accepted only if it increases the
+        // rank of the current constraint Jacobian").  Each feature
+        // remembers the source-coordinate bbox of the points it was
+        // fitted to; a Linear bbox dim is dropped when any non-reentrant
+        // feature already pins the same axis.
+        var featureDims = new List<DimensionWorld>();
+        // Per-axis coverage flags: true means a non-reentrant feature
+        // spans the mesh's full extent on that axis to within 1%, so the
+        // bounding-box dim along that axis is redundant.
+        bool coversX = false, coversY = false, coversZ = false;
+        // Coverage tolerance.  5% catches the typical case where the
+        // sliding-window arc detector drops the last few vertices near a
+        // corner (so the chain doesn't quite reach the bbox extent), while
+        // still being tight enough to leave a small interior hole's bbox
+        // safely below the threshold.
+        void RegisterCoverage(double xmin, double xmax, double ymin, double ymax, double zmin, double zmax)
+        {
+            double tolX = (mxX - mnX) * 0.05 + 1e-12;
+            double tolY = (mxY - mnY) * 0.05 + 1e-12;
+            double tolZ = (mxZ - mnZ) * 0.05 + 1e-12;
+            if (xmin <= mnX + tolX && xmax >= mxX - tolX) coversX = true;
+            if (ymin <= mnY + tolY && ymax >= mxY - tolY) coversY = true;
+            if (zmin <= mnZ + tolZ && zmax >= mxZ - tolZ) coversZ = true;
+        }
+
+        if (!is3D && hasSurfaceElements && !flatInX && !flatInY)
+            AppendCircularHoles2D(meshData, ns, featureDims, W, mnX, mnY, RegisterCoverage);
+        if (is3D)
+        {
+            AppendSphere3D(meshData, ns, featureDims, W, mnX, mnY, mnZ, RegisterCoverage);
+            AppendCylindricalHoles3D(meshData, ns, featureDims, W, mnX, mnY, mnZ, RegisterCoverage);
+        }
+
         // Bounding-box extent dimensions, with the thin axis relabelled.
         // Skip any axis whose extent is negligible relative to the largest
-        // — emitting "L = 0" or "H = 1e-15" on a flat sheet just clutters
-        // the figure with meaningless annotations.
+        // OR fully covered by a detected feature — emitting "L = 0" on a
+        // flat sheet or "L = 2*R" when the outer arc already determines
+        // the part width just clutters the figure.
         string labelX = thinAxis == 0 ? "t" : "L";
         string labelY = thinAxis == 1 ? "t" : (thinAxis == 0 ? "L" : "W");
         string labelZ = thinAxis == 2 ? "t" : (thinAxis == 1 ? "W" : "H");
-        if (extents[0] / Math.Max(maxExt, 1e-12) > FlatRatio)
+        if (extents[0] / Math.Max(maxExt, 1e-12) > FlatRatio && !coversX)
         {
             dims.Add(new DimensionWorld
             {
@@ -106,7 +142,7 @@ public static class DimensionExtractor
                 P1 = W(mnX, mnY, mnZ), P2 = W(mxX, mnY, mnZ),
             });
         }
-        if (extents[1] / Math.Max(maxExt, 1e-12) > FlatRatio)
+        if (extents[1] / Math.Max(maxExt, 1e-12) > FlatRatio && !coversY)
         {
             dims.Add(new DimensionWorld
             {
@@ -114,7 +150,7 @@ public static class DimensionExtractor
                 P1 = W(mnX, mnY, mnZ), P2 = W(mnX, mxY, mnZ),
             });
         }
-        if (is3D && extents[2] / Math.Max(maxExt, 1e-12) > FlatRatio)
+        if (is3D && extents[2] / Math.Max(maxExt, 1e-12) > FlatRatio && !coversZ)
         {
             dims.Add(new DimensionWorld
             {
@@ -123,27 +159,22 @@ public static class DimensionExtractor
             });
         }
 
-        // 2D circular holes plus outer-boundary arcs (notch radii, fillet
-        // radii, partial circles on the silhouette).  Runs whenever the
-        // mesh is effectively 2D — including 2D-flat-in-3D meshes,
-        // provided they are flat in Z (the boundary-loop walker ignores Z
-        // and the circle fit operates in XY).
-        if (!is3D && hasSurfaceElements && !flatInX && !flatInY)
-            AppendCircularHoles2D(meshData, ns, dims, W, mnX, mnY);
-
-        // 3D features: spheres + cylindrical holes.
-        if (is3D)
-        {
-            AppendSphere3D(meshData, ns, dims, W, mnX, mnY, mnZ);
-            AppendCylindricalHoles3D(meshData, ns, dims, W, mnX, mnY, mnZ);
-        }
-
+        dims.AddRange(featureDims);
         return dims;
     }
 
+    /// <summary>
+    /// Callback invoked by feature detectors to register the bounding box
+    /// of the points a feature was fitted to.  The orchestrator uses this
+    /// to drop bounding-box extents that are already determined by a
+    /// detected feature (per the PDF's rank-based non-redundancy rule).
+    /// </summary>
+    private delegate void RegisterCoverageDelegate(
+        double xmin, double xmax, double ymin, double ymax, double zmin, double zmax);
+
     private static void AppendCircularHoles2D(MeshData meshData, double[][] ns,
         List<DimensionWorld> dims, Func<double, double, double, double[]> W,
-        double mnX, double mnY)
+        double mnX, double mnY, RegisterCoverageDelegate registerCoverage)
     {
         var loops = ExtractBoundaryLoops2D(meshData.Elements);
         if (loops.Count == 0) return;
@@ -167,8 +198,10 @@ public static class DimensionExtractor
         // ExtractBoundaryLoops2D).  Loops that close into a true circle
         // become Diameter dimensions; loops that don't (slots, irregular
         // cutouts) fall through to the sliding-window arc detector below.
-        var holeFits = new List<(double cx, double cy, double r)>();
-        var arcFits = new List<(double cx, double cy, double r, bool reentrant)>();
+        var holeFits = new List<(double cx, double cy, double r,
+                                  double xmin, double xmax, double ymin, double ymax)>();
+        var arcFits = new List<(double cx, double cy, double r, bool reentrant,
+                                 double xmin, double xmax, double ymin, double ymax)>();
         var consumedLoops = new HashSet<int>();
         for (int i = 1; i < loops.Count; i++)
         {
@@ -177,7 +210,8 @@ public static class DimensionExtractor
             if (!FitCircleKasa(loop, ns, out double cx, out double cy, out double r, out double rms)) continue;
             if (r < meanEdge * 1.5) continue;
             if (rms / r > 0.05) continue;
-            holeFits.Add((cx, cy, r));
+            (double xmn, double xmx, double ymn, double ymx) = LoopBbox2D(loop, ns);
+            holeFits.Add((cx, cy, r, xmn, xmx, ymn, ymx));
             consumedLoops.Add(i);
         }
 
@@ -191,18 +225,28 @@ public static class DimensionExtractor
             DetectArcsInLoop(loops[i], ns, meanEdge, arcFits);
         }
 
-        // Emit hole diameters with position-from-datum dimensions.  For a
-        // single hole near the bbox centre we suppress cx/cy (they carry
-        // no information beyond "centred"); for off-centre or multiple
-        // holes we always emit both so the figure is reproducible.
+        // Emit hole diameters with position-from-datum dimensions.
         holeFits.Sort((a, b) => b.r.CompareTo(a.r));
-        EmitCircles2D(holeFits, dims, W, mnX, mnY, isHole: true, meshData);
+        EmitCircles2D(holeFits, dims, W, mnX, mnY, meshData, registerCoverage);
 
-        // Emit outer-boundary / partial arcs as radius dimensions.  "R"
-        // for convex (the part bulges outward) and "r" for re-entrant
-        // (the part curves into itself, e.g. notch root) — drafting
-        // convention.
-        EmitArcs2D(arcFits, dims, W, mnX, mnY, meshData);
+        // Emit outer-boundary / partial arcs as radius dimensions.
+        EmitArcs2D(arcFits, dims, W, mnX, mnY, meshData, registerCoverage);
+    }
+
+    /// <summary>Bounding box of a 2D loop's vertices.</summary>
+    private static (double xmin, double xmax, double ymin, double ymax) LoopBbox2D(
+        List<int> loop, double[][] nodes)
+    {
+        double xmn = double.MaxValue, xmx = double.MinValue;
+        double ymn = double.MaxValue, ymx = double.MinValue;
+        foreach (var ni in loop)
+        {
+            if (nodes[ni][0] < xmn) xmn = nodes[ni][0];
+            if (nodes[ni][0] > xmx) xmx = nodes[ni][0];
+            if (nodes[ni][1] < ymn) ymn = nodes[ni][1];
+            if (nodes[ni][1] > ymx) ymx = nodes[ni][1];
+        }
+        return (xmn, xmx, ymn, ymx);
     }
 
     /// <summary>
@@ -213,7 +257,8 @@ public static class DimensionExtractor
     /// loop's signed area (CCW outer = interior on left of tangent).
     /// </summary>
     private static void DetectArcsInLoop(List<int> loop, double[][] nodes, double meanEdge,
-        List<(double cx, double cy, double r, bool reentrant)> output)
+        List<(double cx, double cy, double r, bool reentrant,
+              double xmin, double xmax, double ymin, double ymax)> output)
     {
         int n = loop.Count;
         if (n < 9) return;
@@ -258,7 +303,8 @@ public static class DimensionExtractor
                 && fr > meanEdge * 1.5 && frms / fr < 0.03)
             {
                 bool reentrant = ClassifyReentrant(loop, nodes, n / 2, fcx, fcy, ccw);
-                output.Add((fcx, fcy, fr, reentrant));
+                var (xmn, xmx, ymn, ymx) = LoopBbox2D(loop, nodes);
+                output.Add((fcx, fcy, fr, reentrant, xmn, xmx, ymn, ymx));
             }
             return;
         }
@@ -286,7 +332,19 @@ public static class DimensionExtractor
             // likely noise on a near-straight edge.
             int midPos = (start + len / 2) % n;
             bool reentrant = ClassifyReentrant(loop, nodes, midPos, fcx, fcy, ccw);
-            output.Add((fcx, fcy, fr, reentrant));
+            // Bbox of the chain itself (the actual arc points), used by
+            // the orchestrator to drop bbox extents that the arc already
+            // pins down.
+            double xmn = double.MaxValue, xmx = double.MinValue;
+            double ymn = double.MaxValue, ymx = double.MinValue;
+            foreach (var ni in chainIdx)
+            {
+                if (nodes[ni][0] < xmn) xmn = nodes[ni][0];
+                if (nodes[ni][0] > xmx) xmx = nodes[ni][0];
+                if (nodes[ni][1] < ymn) ymn = nodes[ni][1];
+                if (nodes[ni][1] > ymx) ymx = nodes[ni][1];
+            }
+            output.Add((fcx, fcy, fr, reentrant, xmn, xmx, ymn, ymx));
         }
     }
 
@@ -315,9 +373,11 @@ public static class DimensionExtractor
     }
 
     private static void EmitCircles2D(
-        List<(double cx, double cy, double r)> fits,
+        List<(double cx, double cy, double r,
+              double xmin, double xmax, double ymin, double ymax)> fits,
         List<DimensionWorld> dims, Func<double, double, double, double[]> W,
-        double mnX, double mnY, bool isHole, MeshData meshData)
+        double mnX, double mnY, MeshData meshData,
+        RegisterCoverageDelegate registerCoverage)
     {
         for (int k = 0; k < fits.Count; k++)
         {
@@ -330,20 +390,28 @@ public static class DimensionExtractor
                 P2 = W(fit.cx + fit.r, fit.cy, 0),
                 Radius = ComputeNormalisedRadius(meshData, fit.r),
             });
+            // Interior holes are not silhouette features — they don't pin
+            // the part's bbox extents even when their bbox happens to span
+            // it, so we deliberately skip coverage registration here.
             EmitPositionDims(fit.cx, fit.cy, 0, mnX, mnY, double.NaN, k, fits.Count,
                 is3D: false, dims, W, meshData);
         }
     }
 
     private static void EmitArcs2D(
-        List<(double cx, double cy, double r, bool reentrant)> arcs,
+        List<(double cx, double cy, double r, bool reentrant,
+              double xmin, double xmax, double ymin, double ymax)> arcs,
         List<DimensionWorld> dims, Func<double, double, double, double[]> W,
-        double mnX, double mnY, MeshData meshData)
+        double mnX, double mnY, MeshData meshData,
+        RegisterCoverageDelegate registerCoverage)
     {
         // Group near-identical arcs (same centre, same radius within 5%)
         // — sliding-window detection on a circular feature can split a
         // smooth arc into two halves around the wrap-around boundary.
-        var grouped = new List<(double cx, double cy, double r, bool reentrant, int count)>();
+        // The bbox of the merged group is the union of contributors so the
+        // redundancy check sees the full angular sweep.
+        var grouped = new List<(double cx, double cy, double r, bool reentrant, int count,
+                                 double xmin, double xmax, double ymin, double ymax)>();
         foreach (var a in arcs)
         {
             bool merged = false;
@@ -356,10 +424,13 @@ public static class DimensionExtractor
                 grouped[i] = ((g.cx * g.count + a.cx) / (g.count + 1),
                               (g.cy * g.count + a.cy) / (g.count + 1),
                               (g.r  * g.count + a.r)  / (g.count + 1),
-                              g.reentrant, g.count + 1);
+                              g.reentrant, g.count + 1,
+                              Math.Min(g.xmin, a.xmin), Math.Max(g.xmax, a.xmax),
+                              Math.Min(g.ymin, a.ymin), Math.Max(g.ymax, a.ymax));
                 merged = true; break;
             }
-            if (!merged) grouped.Add((a.cx, a.cy, a.r, a.reentrant, 1));
+            if (!merged) grouped.Add((a.cx, a.cy, a.r, a.reentrant, 1,
+                                       a.xmin, a.xmax, a.ymin, a.ymax));
         }
         grouped.Sort((a, b) => b.r.CompareTo(a.r));
 
@@ -372,15 +443,23 @@ public static class DimensionExtractor
             dims.Add(new DimensionWorld
             {
                 Kind = DimensionKind.Diameter, Label = lab,
-                // Radius (not diameter) is the conventional dimension for
-                // arcs — emit the radius value but reuse the Diameter
-                // kind for renderer simplicity.  The label "R" / "r"
-                // tells the reader it's a radius, not a diameter.
                 Value = g.r,
                 P1 = W(g.cx, g.cy, 0),
                 P2 = W(g.cx + g.r, g.cy, 0),
                 Radius = ComputeNormalisedRadius(meshData, g.r),
             });
+            // Only convex arcs pin a bounding-box extent.  A re-entrant
+            // arc's bbox lies inside the part — even if it spans the full
+            // mesh extent, it doesn't determine the silhouette there
+            // (you'd still need an outline dim to say where the part
+            // ends).  Suppressing those keeps L / W in figures where the
+            // outer profile is straight but the cutout happens to be
+            // wide.
+            if (!g.reentrant)
+            {
+                registerCoverage(g.xmin, g.xmax, g.ymin, g.ymax,
+                                 double.PositiveInfinity, double.NegativeInfinity);
+            }
         }
     }
 
@@ -444,7 +523,8 @@ public static class DimensionExtractor
     /// </summary>
     private static void AppendSphere3D(MeshData meshData, double[][] ns,
         List<DimensionWorld> dims, Func<double, double, double, double[]> W,
-        double mnX, double mnY, double mnZ)
+        double mnX, double mnY, double mnZ,
+        RegisterCoverageDelegate registerCoverage)
     {
         bool is3D = true;
         var bfaces = BoundaryExtractor.Extract(meshData.Elements, is3D);
@@ -477,6 +557,11 @@ public static class DimensionExtractor
             P2 = W(cx + r, cy, cz),
             Radius = ComputeNormalisedRadius(meshData, r),
         });
+        // A sphere pins all three bbox extents — its surface fully spans
+        // each cardinal axis when the mesh IS a sphere.  When it's only
+        // an inclusion within a larger part the boundary-node bbox is
+        // smaller than the mesh, so coverage doesn't trigger spuriously.
+        registerCoverage(mnXn, mxXn, mnYn, mxYn, mnZn, mxZn);
         EmitPositionDims(cx, cy, cz, mnX, mnY, mnZ, 0, 1, is3D: true, dims, W, meshData);
     }
 
@@ -493,7 +578,8 @@ public static class DimensionExtractor
     /// </summary>
     private static void AppendCylindricalHoles3D(MeshData meshData, double[][] ns,
         List<DimensionWorld> dims, Func<double, double, double, double[]> W,
-        double mnX, double mnY, double mnZ)
+        double mnX, double mnY, double mnZ,
+        RegisterCoverageDelegate registerCoverage)
     {
         var bfaces = BoundaryExtractor.Extract(meshData.Elements, is3D: true);
         var cycles = ExtractFeatureEdgeCycles3D(bfaces, ns, angleDeg: 35.0);
@@ -565,6 +651,23 @@ public static class DimensionExtractor
                 Radius = ComputeNormalisedRadius(meshData, fit.r),
                 Axis = fit.axis,
             });
+
+            // Coverage registration for a cylinder: the rim spans full
+            // diameter in the two axes perpendicular to the cylinder
+            // axis, but pins zero width along the axis (it's a single
+            // plane).  We pass +/- ∞ for any axis the cylinder is
+            // strongly aligned with (|component| > 0.9) so the cylinder
+            // never claims to determine its own axial extent — the
+            // mesh's L/W/H along that direction is the part length, not
+            // the hole's axial span.
+            double cxMin = fit.cx - fit.r, cxMax = fit.cx + fit.r;
+            double cyMin = fit.cy - fit.r, cyMax = fit.cy + fit.r;
+            double czMin = fit.cz - fit.r, czMax = fit.cz + fit.r;
+            if (Math.Abs(fit.axis[0]) > 0.9) { cxMin = double.PositiveInfinity; cxMax = double.NegativeInfinity; }
+            if (Math.Abs(fit.axis[1]) > 0.9) { cyMin = double.PositiveInfinity; cyMax = double.NegativeInfinity; }
+            if (Math.Abs(fit.axis[2]) > 0.9) { czMin = double.PositiveInfinity; czMax = double.NegativeInfinity; }
+            registerCoverage(cxMin, cxMax, cyMin, cyMax, czMin, czMax);
+
             EmitPositionDims(fit.cx, fit.cy, fit.cz, mnX, mnY, mnZ, k, fits.Count,
                 is3D: true, dims, W, meshData);
         }
