@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using SimPlasPost.Core.Colormap;
 using SimPlasPost.Core.Models;
+using SimPlasPost.Core.Rendering;
 
 namespace SimPlasPost.Core.Export;
 
@@ -126,6 +127,13 @@ public static class PdfExporter
                 stream.AppendLine("Q"); // restore graphics state
             }
         }
+
+        // Plain-mode dimensioning overlay.  Drawn after the mesh content
+        // but before the colour bar / triad so the geometry annotations sit
+        // on top of the silhouette but never occlude the legends in the
+        // page corners.  Same screen-space layout as the live overlay.
+        if (scene.Dimensions.Count > 0)
+            DrawDimensions(stream, scene);
 
         // Color bar with labels — labels LEFT of bar, field name RIGHT of bar
         if (!string.IsNullOrEmpty(scene.FieldName))
@@ -274,6 +282,94 @@ public static class PdfExporter
             double lx = tipX + (len > 3 ? dx / len * 12 : 6);
             double ly = tipY + (len > 3 ? dy / len * 12 : 6) - 4.5;
             s.AppendLine($"BT /F1 13 Tf {cr} {cg} {cb} rg 1 0 0 1 {F2(lx)} {F2(ly)} Tm ({Escape(label)}) Tj ET");
+        }
+    }
+
+    /// <summary>
+    /// Render the Plain-mode dimensioning overlay into the PDF content
+    /// stream.  Each dimension contributes (a) two extension lines, (b) the
+    /// offset dimension line, (c) two filled triangular arrowheads at the
+    /// dimension-line ends, and (d) a value label rotated to follow the
+    /// dimension line.  The screen positions come straight from
+    /// <see cref="DimensionLayout.Project"/>, which the live overlay also
+    /// uses, so the page matches what's on screen pixel-for-pixel.
+    /// </summary>
+    private static void DrawDimensions(StringBuilder stream, ExportScene scene)
+    {
+        const double inkR = 0.13;
+        const double labelFontSize = 11.5;
+        // Times-Bold metric assumed elsewhere in this exporter
+        const double avgCharW = labelFontSize * AvgCharWidth;
+
+        foreach (var d in scene.Dimensions)
+        {
+            // Extension lines (linear only — diameter rules go straight
+            // through the centre, no leaders needed).
+            stream.AppendLine($"{F(inkR)} {F(inkR)} {F(inkR)} RG 0.5 w 1 J");
+            if (d.Kind == DimensionKind.Linear)
+            {
+                stream.AppendLine($"{F2(d.Ext1[0])} {F2(scene.H - d.Ext1[1])} m {F2(d.Dim1[0])} {F2(scene.H - d.Dim1[1])} l S");
+                stream.AppendLine($"{F2(d.Ext2[0])} {F2(scene.H - d.Ext2[1])} m {F2(d.Dim2[0])} {F2(scene.H - d.Dim2[1])} l S");
+            }
+
+            // Dimension line (slightly heavier).
+            stream.AppendLine($"0.7 w {F2(d.Dim1[0])} {F2(scene.H - d.Dim1[1])} m {F2(d.Dim2[0])} {F2(scene.H - d.Dim2[1])} l S 0.5 w");
+
+            // Filled arrowheads (PDF y is up — flip y components by
+            // negating the cross-arrow offset's y term so the triangles
+            // close on the correct side of the dimension line in PDF
+            // user space).
+            double dx = d.Dim2[0] - d.Dim1[0];
+            double dy = d.Dim2[1] - d.Dim1[1];
+            double L = Math.Sqrt(dx * dx + dy * dy);
+            if (L > 1e-6)
+            {
+                double ux = dx / L, uy = dy / L;
+                const double hL = 7, hW = 2.6;
+                stream.AppendLine($"{F(inkR)} {F(inkR)} {F(inkR)} rg");
+                // Arrow at Dim1 (pointing inward, +u direction).
+                double t1x = d.Dim1[0], t1y = scene.H - d.Dim1[1];
+                double a1x = d.Dim1[0] + ux * hL - uy * hW;
+                double a1y = scene.H - (d.Dim1[1] + uy * hL + ux * hW);
+                double a2x = d.Dim1[0] + ux * hL + uy * hW;
+                double a2y = scene.H - (d.Dim1[1] + uy * hL - ux * hW);
+                stream.AppendLine($"{F2(t1x)} {F2(t1y)} m {F2(a1x)} {F2(a1y)} l {F2(a2x)} {F2(a2y)} l h f");
+                // Arrow at Dim2 (pointing inward, -u direction).
+                double t2x = d.Dim2[0], t2y = scene.H - d.Dim2[1];
+                double b1x = d.Dim2[0] - ux * hL - uy * hW;
+                double b1y = scene.H - (d.Dim2[1] - uy * hL + ux * hW);
+                double b2x = d.Dim2[0] - ux * hL + uy * hW;
+                double b2y = scene.H - (d.Dim2[1] - uy * hL - ux * hW);
+                stream.AppendLine($"{F2(t2x)} {F2(t2y)} m {F2(b1x)} {F2(b1y)} l {F2(b2x)} {F2(b2y)} l h f");
+            }
+
+            // Value label.  ⌀ in WinAnsi is Ø (octal \\330 / 0xD8) — close
+            // enough to a diameter sign that publication readers pattern-
+            // match it.  Width is approximated from average char width so
+            // the centre matches the live overlay without metrics access.
+            string txtForWidth, txtForPdf;
+            if (d.Kind == DimensionKind.Diameter)
+            {
+                txtForWidth = $"O {DimensionLayout.FormatValue(d.Value)}";
+                // \330 is Ø (closest WinAnsi glyph to ⌀).
+                txtForPdf   = $"\\330 {DimensionLayout.FormatValue(d.Value)}";
+            }
+            else
+            {
+                txtForWidth = $"{d.Label} = {DimensionLayout.FormatValue(d.Value)}";
+                txtForPdf   = txtForWidth;
+            }
+            double textW = txtForWidth.Length * avgCharW;
+            // Negate the screen-frame angle so the visual rotation matches
+            // PDF's y-up convention (DimensionScreen.Rot is in degrees).
+            double a = -d.Rot * Math.PI / 180.0;
+            double cosA = Math.Cos(a), sinA = Math.Sin(a);
+            double cx = d.LabelPos[0], cy = scene.H - d.LabelPos[1];
+            stream.AppendLine("q");
+            stream.AppendLine($"{F(cosA)} {F(sinA)} {F(-sinA)} {F(cosA)} {F2(cx)} {F2(cy)} cm");
+            stream.AppendLine("0.13 0.13 0.13 rg");
+            stream.AppendLine($"BT /F1 {F2(labelFontSize)} Tf 1 0 0 1 {F2(-textW / 2)} {F2(-labelFontSize * 0.32)} Tm ({Escape(txtForPdf)}) Tj ET");
+            stream.AppendLine("Q");
         }
     }
 

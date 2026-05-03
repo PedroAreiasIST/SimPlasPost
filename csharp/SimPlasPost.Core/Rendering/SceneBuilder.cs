@@ -18,7 +18,9 @@ public static class SceneBuilder
         bool showMeshLines = true,
         bool showPlainMeshLines = false,
         bool showPlainGeometryEdges = true,
-        bool showPlainLighting = true)
+        bool showPlainLighting = true,
+        bool showPlainDimensions = false,
+        IList<DimensionWorld>? dimensionsWorld = null)
     {
         if (meshData == null) return null;
 
@@ -422,10 +424,23 @@ public static class SceneBuilder
             });
         }
 
+        // Plain-mode dimensioning overlay.  The toggle at the call site
+        // already enforces the rule that dimensions are only available in
+        // Plain mode with mesh lines off; this assertion is purely defensive
+        // so the renderer can never observe an inconsistent flag set.
+        var dimensions = new List<DimensionScreen>();
+        if (showPlainDimensions && dMode == DisplayMode.Plain && !showPlainMeshLines && dimensionsWorld != null && dimensionsWorld.Count > 0)
+        {
+            dimensions = DimensionLayout.Project(
+                dimensionsWorld, cam, orthoHH, w, h,
+                bboxCenterWorld: new[] { 0.0, 0.0, 0.0 });
+        }
+
         return new ExportScene
         {
             Faces = exportFaces, VisibleEdges = visibleEdges, Contours = contours,
             Bars = bars, Points = points, ContourLabels = placedLabels,
+            Dimensions = dimensions,
             Lp = lp, FieldName = displayFieldName, FMin = efMin, FMax = efMax,
             W = w, H = h, Mode = dMode, Rotation = camParams.Rot,
         };

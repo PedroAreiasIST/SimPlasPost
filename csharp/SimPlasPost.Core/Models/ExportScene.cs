@@ -140,6 +140,13 @@ public class ExportScene
     public List<ProjectedBar> Bars { get; set; } = new();
     public List<ProjectedPoint> Points { get; set; } = new();
     public List<PlacedContourLabel> ContourLabels { get; set; } = new();
+    /// <summary>
+    /// Optional Plain-mode dimension overlay (bounding-box extents and
+    /// detected hole diameters) projected to screen.  Empty when the
+    /// "Dimensions" toggle is off or mesh lines are visible — those
+    /// configurations don't allow the geometry-edge layer.
+    /// </summary>
+    public List<DimensionScreen> Dimensions { get; set; } = new();
     public LinePreset Lp { get; set; } = LinePreset.Presets[2];
     public string? FieldName { get; set; }
     public double FMin { get; set; }

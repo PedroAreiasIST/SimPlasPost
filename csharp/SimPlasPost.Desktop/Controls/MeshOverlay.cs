@@ -52,6 +52,10 @@ public class MeshOverlay : Control
         // Contour labels: only meaningful in Lines mode (we don't draw
         // iso-contour lines in any other mode).
         DrawContourLabels(context, bounds);
+        // Plain-mode dimensioning overlay — bounding-box extents and any
+        // detected 2D hole diameters.  Re-projected each frame so the
+        // labels and arrows track the camera live.
+        DrawDimensions(context, bounds);
         DrawTriad(context, bounds);
         if (!string.IsNullOrEmpty(_vm.Info))
         {
@@ -123,6 +127,94 @@ public class MeshOverlay : Control
                     new Point(-formatted.Width / 2, -formatted.Height / 2));
             }
         }
+    }
+
+    /// <summary>
+    /// Draw the Plain-mode dimensioning overlay: extension lines from each
+    /// measured feature, an offset dimension line with arrowheads at both
+    /// ends, and a value label rotated to follow the dimension line.
+    ///
+    /// Available only when the user is in Plain mode with mesh lines off
+    /// AND the "Dimensions" checkbox is on — the VM's ShowPlainDimensions
+    /// guard already enforces this combination, so the only check here is
+    /// against the cached world-space dimension list (empty when the mesh
+    /// has no recoverable features).
+    /// </summary>
+    private void DrawDimensions(DrawingContext ctx, Rect bounds)
+    {
+        if (_vm == null) return;
+        if (!_vm.ShowPlainDimensions) return;
+        if (_vm.DisplayMode_ != DisplayMode.Plain) return;
+        if (_vm.ShowPlainMeshLines) return; // belt-and-braces; setter already guards
+        if (_vm.DimensionsWorld.Count == 0) return;
+
+        int w = (int)Math.Max(1, bounds.Width);
+        int h = (int)Math.Max(1, bounds.Height);
+        var cam = Camera.Build(_vm.Camera);
+        var laid = DimensionLayout.Project(
+            _vm.DimensionsWorld, cam, _vm.Camera.Dist, w, h,
+            bboxCenterWorld: new[] { 0.0, 0.0, 0.0 });
+        if (laid.Count == 0) return;
+
+        var inkBrush = new SolidColorBrush(Color.FromRgb(34, 34, 34));
+        var inkPenThin  = new Pen(inkBrush, 0.7);
+        var inkPenThick = new Pen(inkBrush, 1.0);
+        const double textSize = 12;
+
+        foreach (var d in laid)
+        {
+            if (d.Kind == DimensionKind.Linear)
+            {
+                ctx.DrawLine(inkPenThin,
+                    new Point(d.Ext1[0], d.Ext1[1]), new Point(d.Dim1[0], d.Dim1[1]));
+                ctx.DrawLine(inkPenThin,
+                    new Point(d.Ext2[0], d.Ext2[1]), new Point(d.Dim2[0], d.Dim2[1]));
+            }
+
+            ctx.DrawLine(inkPenThick,
+                new Point(d.Dim1[0], d.Dim1[1]), new Point(d.Dim2[0], d.Dim2[1]));
+
+            // Filled triangular arrowheads pointing inward at both ends.
+            DrawArrow(ctx, inkBrush, d.Dim1, d.Dim2, atStart: true);
+            DrawArrow(ctx, inkBrush, d.Dim1, d.Dim2, atStart: false);
+
+            string txt = d.Kind == DimensionKind.Diameter
+                ? $"⌀ {DimensionLayout.FormatValue(d.Value)}"
+                : $"{d.Label} = {DimensionLayout.FormatValue(d.Value)}";
+            var formatted = new FormattedText(txt, System.Globalization.CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight, SciBold, textSize, inkBrush);
+
+            using (ctx.PushTransform(Matrix.CreateTranslation(d.LabelPos[0], d.LabelPos[1])))
+            using (ctx.PushTransform(Matrix.CreateRotation(d.Rot * Math.PI / 180.0)))
+            {
+                ctx.DrawText(formatted,
+                    new Point(-formatted.Width / 2, -formatted.Height / 2));
+            }
+        }
+    }
+
+    private static void DrawArrow(DrawingContext ctx, IBrush brush, double[] a, double[] b, bool atStart)
+    {
+        double dx = b[0] - a[0], dy = b[1] - a[1];
+        double L = Math.Sqrt(dx * dx + dy * dy);
+        if (L < 1e-6) return;
+        double ux = dx / L, uy = dy / L;
+        const double hL = 7, hW = 2.6;
+        double tipX, tipY, sign;
+        if (atStart) { tipX = a[0]; tipY = a[1]; sign = +1; }
+        else         { tipX = b[0]; tipY = b[1]; sign = -1; }
+        var tip = new Point(tipX, tipY);
+        var p1 = new Point(tipX + sign * (ux * hL - uy * hW), tipY + sign * (uy * hL + ux * hW));
+        var p2 = new Point(tipX + sign * (ux * hL + uy * hW), tipY + sign * (uy * hL - ux * hW));
+        var g = new StreamGeometry();
+        using (var c = g.Open())
+        {
+            c.BeginFigure(tip, true);
+            c.LineTo(p1);
+            c.LineTo(p2);
+            c.EndFigure(true);
+        }
+        ctx.DrawGeometry(brush, null, g);
     }
 
     private void DrawColorBar(DrawingContext ctx, Rect bounds)

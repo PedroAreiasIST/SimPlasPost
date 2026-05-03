@@ -409,17 +409,26 @@ public partial class MainWindow : Window
         if (_vm != null) _vm.ShowPlainGeometryEdges = CbPlainGeometryEdges.IsChecked == true;
     }
 
+    private void OnPlainDimensionsChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_vm != null) _vm.ShowPlainDimensions = CbPlainDimensions.IsChecked == true;
+    }
+
     private void SyncPlainGeometryEdgesAvailability()
     {
         if (_vm == null) return;
         bool meshLinesOn = _vm.ShowPlainMeshLines;
+        // Geometry edges and dimensions are both gated on "mesh lines off".
+        // When mesh lines come on we disable both checkboxes and force their
+        // state to false, mirroring the VM's defensive setters.
         CbPlainGeometryEdges.IsEnabled = !meshLinesOn;
+        CbPlainDimensions.IsEnabled    = !meshLinesOn;
         if (meshLinesOn)
         {
-            // Force off both in the UI and in the VM so renderer/exporter
-            // never see geometry edges while mesh lines are visible.
             CbPlainGeometryEdges.IsChecked = false;
+            CbPlainDimensions.IsChecked    = false;
             _vm.ShowPlainGeometryEdges = false;
+            _vm.ShowPlainDimensions    = false;
         }
     }
 
