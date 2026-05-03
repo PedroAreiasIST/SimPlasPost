@@ -1614,12 +1614,11 @@ export default function FEPostprocessor() {
     dimsCacheRef.current = meshData ? buildDimensions(meshData) : null;
   },[meshData]);
 
-  // Toggle the live overlay without rebuilding the Three.js scene. Geometry edges
-  // (the dimension overlay) follow the same rule as the checkbox: active only
-  // while mesh lines are off.
+  // Toggle the live overlay without rebuilding the Three.js scene. Geometry
+  // edges (the dimension overlay) follow the checkbox rule: active only when
+  // mesh lines are off, which is the Plain mode.
   useEffect(()=>{
-    const meshOn = displayMode==="wireframe"||displayMode==="plot";
-    dimsActiveRef.current = showDimensions && !meshOn;
+    dimsActiveRef.current = showDimensions && displayMode==="plain";
     if (!dimsActiveRef.current && dimsOverlayRef.current) dimsOverlayRef.current.innerHTML = "";
   },[showDimensions, displayMode]);
 
@@ -1779,7 +1778,7 @@ export default function FEPostprocessor() {
     const EW = 800, EH = 600;
     const em = userMin!==""&&!isNaN(parseFloat(userMin)) ? parseFloat(userMin) : null;
     const ex = userMax!==""&&!isNaN(parseFloat(userMax)) ? parseFloat(userMax) : null;
-    const dimsActive = showDimensions && !(displayMode==="wireframe"||displayMode==="plot");
+    const dimsActive = showDimensions && displayMode==="plain";
     const scene = computeExportScene(meshData, activeField, showDef, defScale, camRef.current, EW, EH, displayMode, contourN, em, ex, dimsActive);
     if (!scene) return;
     if (fmt === "svg") {
@@ -1794,11 +1793,11 @@ export default function FEPostprocessor() {
   const sFields=meshData?Object.keys(meshData.fields||{}).filter(f=>meshData.fields[f].type==="scalar"):[];
   const effMin = userMin!==""&&!isNaN(parseFloat(userMin)) ? parseFloat(userMin) : fRange[0];
   const effMax = userMax!==""&&!isNaN(parseFloat(userMax)) ? parseFloat(userMax) : fRange[1];
-  // Mesh lines are drawn in modes that show all per-element edges. Geometry-edge
-  // overlays (e.g. dimensions) auto-deactivate while mesh lines are on.
-  const meshLinesOn = displayMode==="wireframe"||displayMode==="plot";
-  // Auto-clear the dimensions toggle if the user switches to a mesh-lines-on mode
-  // so the checkbox state matches the rule.
+  // Mesh lines are considered ON in every mode that draws element or feature
+  // edges. Geometry edges (the dimension overlay) are only available when mesh
+  // lines are OFF, i.e. in Plain mode. In every other mode the checkbox is
+  // disabled and the state is forced off.
+  const meshLinesOn = displayMode!=="plain";
   useEffect(()=>{ if (meshLinesOn && showDimensions) setShowDimensions(false); },
     [meshLinesOn, showDimensions]);
 
