@@ -477,6 +477,9 @@ public partial class MainWindow : Window
     private void OnZoomToFit(object? sender, RoutedEventArgs e) =>
         _vm.ZoomToFit(Viewport.Bounds.Width, Viewport.Bounds.Height);
 
+    private void OnBestView(object? sender, RoutedEventArgs e) =>
+        _vm.OptimalView(Viewport.Bounds.Width, Viewport.Bounds.Height);
+
     private void OnPresetView(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button btn || btn.Tag is not string tag) return;
