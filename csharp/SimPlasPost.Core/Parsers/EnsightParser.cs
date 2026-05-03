@@ -140,14 +140,46 @@ public static class EnsightParser
             Next(); // 'coordinates'
             if (int.TryParse(Next(), out int npts) && npts > 0 && npts <= MaxNodesPerPart)
             {
-                for (int k = 0; k < npts; k++)
+                // Custom Ensight writers sometimes mix the two ASCII
+                // layouts: a global "coordinates" block (Ensight 6
+                // placement) but numbers laid out per-axis, one value per
+                // line (Gold-style — all X first, then all Y, then all Z).
+                // The strict Ensight 6 reader expects "id x y z" or
+                // "x y z" per line.  Detect which by peeking at the first
+                // post-count line: a single token = per-axis; 3 or 4
+                // tokens = per-line.
+                //
+                // For the per-axis variant we honour `node id given`
+                // (IDs on their own lines BEFORE the coordinate columns,
+                // exactly like Gold's per-part path).  For the per-line
+                // variant the existing auto-detect on token count
+                // (`parts.Length >= 4`) keeps handling inline IDs.
+                var firstTokens = Peek().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                bool perLineXYZ = firstTokens.Length >= 3;
+
+                if (perLineXYZ)
                 {
-                    var parts = Next().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-                    int off = (parts.Length >= 4) ? 1 : 0; // tolerate inline node id even when 'off'
-                    double rx = parts.Length > off     && double.TryParse(parts[off],     out var vx) ? vx : 0;
-                    double ry = parts.Length > off + 1 && double.TryParse(parts[off + 1], out var vy) ? vy : 0;
-                    double rz = parts.Length > off + 2 && double.TryParse(parts[off + 2], out var vz) ? vz : 0;
-                    allNodes.Add(new[] { rx, ry, rz });
+                    for (int k = 0; k < npts; k++)
+                    {
+                        var parts = Next().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                        int off = (parts.Length >= 4) ? 1 : 0; // tolerate inline node id even when 'off'
+                        double rx = parts.Length > off     && double.TryParse(parts[off],     out var vx) ? vx : 0;
+                        double ry = parts.Length > off + 1 && double.TryParse(parts[off + 1], out var vy) ? vy : 0;
+                        double rz = parts.Length > off + 2 && double.TryParse(parts[off + 2], out var vz) ? vz : 0;
+                        allNodes.Add(new[] { rx, ry, rz });
+                    }
+                }
+                else
+                {
+                    if (nidGiven)
+                        for (int k = 0; k < npts; k++) Next();
+                    var x = new double[npts];
+                    var y = new double[npts];
+                    var z = new double[npts];
+                    for (int k = 0; k < npts; k++) x[k] = double.TryParse(Next(), out var v) ? v : 0;
+                    for (int k = 0; k < npts; k++) y[k] = double.TryParse(Next(), out var v) ? v : 0;
+                    for (int k = 0; k < npts; k++) z[k] = double.TryParse(Next(), out var v) ? v : 0;
+                    for (int k = 0; k < npts; k++) allNodes.Add(new[] { x[k], y[k], z[k] });
                 }
             }
         }
