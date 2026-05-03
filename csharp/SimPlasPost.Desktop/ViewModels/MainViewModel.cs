@@ -332,7 +332,21 @@ public class MainViewModel : INotifyPropertyChanged
             Log = "Reading files...";
             var mesh = EnsightParser.LoadFromFiles(fileContents);
             LoadMesh(mesh);
-            Log = $"{mesh.Nodes.Length} nodes, {mesh.Elements.Count} elems, {mesh.Fields.Count} fields";
+            // Report the parsed bbox alongside the counts so a parser bug
+            // that collapses Y/Z to zero (visible as a "single line" on
+            // screen) is immediately diagnosable from the sidebar log
+            // without opening DevTools.
+            double mnX=double.MaxValue,mxX=double.MinValue,mnY=double.MaxValue,mxY=double.MinValue,mnZ=double.MaxValue,mxZ=double.MinValue;
+            foreach (var n in mesh.Nodes)
+            {
+                if (n[0]<mnX) mnX=n[0]; if (n[0]>mxX) mxX=n[0];
+                if (n[1]<mnY) mnY=n[1]; if (n[1]>mxY) mxY=n[1];
+                if (n[2]<mnZ) mnZ=n[2]; if (n[2]>mxZ) mxZ=n[2];
+            }
+            string bbox = mesh.Nodes.Length > 0
+                ? $"  |  bbox=[{mxX-mnX:G3} × {mxY-mnY:G3} × {mxZ-mnZ:G3}]"
+                : "";
+            Log = $"{mesh.Nodes.Length} nodes, {mesh.Elements.Count} elems, {mesh.Fields.Count} fields{bbox}";
         }
         catch (Exception ex)
         {
