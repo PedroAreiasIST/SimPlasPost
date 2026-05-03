@@ -542,7 +542,356 @@ function isSegmentVisible(a, b, zbuf, W, H) {
   return vis >= Math.ceil(N/2);
 }
 
-function computeExportScene(meshData, activeField, showDef, defScale, camParams, W, H, dMode, cN, eMin, eMax) {
+// ─── Automatic Dimensioning ───
+// Inspired by deterministic mesh-to-feature pipelines: extract bounding-box
+// extents and (in 2D) detect circular interior holes via boundary-loop fitting.
+// All output points are expressed in the same normalized [-1,1] frame used by
+// the renderer, so they can be projected with the existing camera utilities.
+
+function solve3x3(M, b) {
+  const det = M[0][0]*(M[1][1]*M[2][2]-M[1][2]*M[2][1])
+            - M[0][1]*(M[1][0]*M[2][2]-M[1][2]*M[2][0])
+            + M[0][2]*(M[1][0]*M[2][1]-M[1][1]*M[2][0]);
+  if (Math.abs(det) < 1e-18) return null;
+  const inv = 1/det;
+  const x = ( b[0]*(M[1][1]*M[2][2]-M[1][2]*M[2][1])
+            - M[0][1]*(b[1]*M[2][2]-M[1][2]*b[2])
+            + M[0][2]*(b[1]*M[2][1]-M[1][1]*b[2])) * inv;
+  const y = ( M[0][0]*(b[1]*M[2][2]-M[1][2]*b[2])
+            - b[0]*(M[1][0]*M[2][2]-M[1][2]*M[2][0])
+            + M[0][2]*(M[1][0]*b[2]-b[1]*M[2][0])) * inv;
+  const z = ( M[0][0]*(M[1][1]*b[2]-b[1]*M[2][1])
+            - M[0][1]*(M[1][0]*b[2]-b[1]*M[2][0])
+            + b[0]*(M[1][0]*M[2][1]-M[1][1]*M[2][0])) * inv;
+  return [x, y, z];
+}
+
+function extractBoundaryLoops2D(elements, nodes) {
+  const edgeCount = new Map();
+  for (const el of elements) {
+    const ft = FACE_TABLE[el.type];
+    if (!ft || ft.dim !== 2) continue;
+    const c = el.conn;
+    for (let i = 0; i < c.length; i++) {
+      const a = c[i], b = c[(i+1) % c.length];
+      const k = a < b ? `${a},${b}` : `${b},${a}`;
+      edgeCount.set(k, (edgeCount.get(k) || 0) + 1);
+    }
+  }
+  const adj = new Map();
+  for (const [k, n] of edgeCount.entries()) {
+    if (n !== 1) continue;
+    const [sa, sb] = k.split(",").map(Number);
+    if (!adj.has(sa)) adj.set(sa, []);
+    if (!adj.has(sb)) adj.set(sb, []);
+    adj.get(sa).push(sb);
+    adj.get(sb).push(sa);
+  }
+  const visited = new Set();
+  const loops = [];
+  for (const start of adj.keys()) {
+    if (visited.has(start)) continue;
+    const loop = [start]; visited.add(start);
+    let prev = -1, cur = start, safety = 0;
+    while (safety++ < 1e6) {
+      const nbs = adj.get(cur) || [];
+      let nxt = -1;
+      for (const n of nbs) { if (n !== prev) { nxt = n; break; } }
+      if (nxt === -1 || nxt === start) break;
+      if (visited.has(nxt)) break;
+      visited.add(nxt); loop.push(nxt);
+      prev = cur; cur = nxt;
+    }
+    if (loop.length >= 3) loops.push(loop);
+  }
+  // Signed area (z-component of cross product sum)
+  for (const loop of loops) {
+    let A = 0;
+    for (let i = 0; i < loop.length; i++) {
+      const p = nodes[loop[i]], q = nodes[loop[(i+1)%loop.length]];
+      A += p[0]*q[1] - q[0]*p[1];
+    }
+    loop.signedArea = 0.5 * A;
+  }
+  loops.sort((a, b) => Math.abs(b.signedArea) - Math.abs(a.signedArea));
+  return loops;
+}
+
+function fitCircleKasa(loop, nodes) {
+  const n = loop.length;
+  if (n < 4) return null;
+  let sx=0, sy=0, sxx=0, syy=0, sxy=0, sxxx=0, syyy=0, sxyy=0, sxxy=0;
+  for (const ni of loop) {
+    const x = nodes[ni][0], y = nodes[ni][1];
+    sx += x; sy += y;
+    sxx += x*x; syy += y*y; sxy += x*y;
+    sxxx += x*x*x; syyy += y*y*y;
+    sxyy += x*y*y; sxxy += x*x*y;
+  }
+  const A = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, n]];
+  const sol = solve3x3(A, [-(sxxx + sxyy), -(sxxy + syyy), -(sxx + syy)]);
+  if (!sol) return null;
+  const [D, E, F] = sol;
+  const cx = -D/2, cy = -E/2;
+  const r2v = cx*cx + cy*cy - F;
+  if (!(r2v > 0)) return null;
+  const r = Math.sqrt(r2v);
+  let s = 0;
+  for (const ni of loop) {
+    const x = nodes[ni][0], y = nodes[ni][1];
+    const d = Math.sqrt((x-cx)*(x-cx) + (y-cy)*(y-cy)) - r;
+    s += d*d;
+  }
+  return { cx, cy, r, rms: Math.sqrt(s/n) };
+}
+
+function buildDimensions(meshData) {
+  if (!meshData) return [];
+  const ns = meshData.nodes;
+  const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+  for (const n of ns) for (let d = 0; d < 3; d++) {
+    if (n[d] < mn[d]) mn[d] = n[d];
+    if (n[d] > mx[d]) mx[d] = n[d];
+  }
+  const cen = [(mn[0]+mx[0])/2, (mn[1]+mx[1])/2, (mn[2]+mx[2])/2];
+  const span = Math.max(mx[0]-mn[0], mx[1]-mn[1], mx[2]-mn[2], 1e-12);
+  const sc = 2 / span;
+  const w = (p) => [(p[0]-cen[0])*sc, (p[1]-cen[1])*sc, (p[2]-cen[2])*sc];
+
+  const is3D = meshData.dim === 3 || meshData.elements.some(e => {
+    const ft = FACE_TABLE[e.type]; return ft && ft.dim === 3;
+  });
+
+  const dims = [];
+  // Bounding-box extents — anchor on the minimum corner
+  dims.push({ kind: "linear", axis: "X", label: "L",
+    p1: w([mn[0], mn[1], mn[2]]), p2: w([mx[0], mn[1], mn[2]]),
+    value: mx[0]-mn[0] });
+  dims.push({ kind: "linear", axis: "Y", label: "W",
+    p1: w([mn[0], mn[1], mn[2]]), p2: w([mn[0], mx[1], mn[2]]),
+    value: mx[1]-mn[1] });
+  if (is3D) {
+    dims.push({ kind: "linear", axis: "Z", label: "H",
+      p1: w([mn[0], mn[1], mn[2]]), p2: w([mn[0], mn[1], mx[2]]),
+      value: mx[2]-mn[2] });
+  }
+
+  // 2D circular hole detection: largest loop is the outer boundary, rest are
+  // candidate holes. Accept a circle fit only when the residual is small
+  // relative to its radius and the loop has enough segments.
+  if (!is3D) {
+    const loops = extractBoundaryLoops2D(meshData.elements, ns);
+    if (loops.length > 1) {
+      let totalLen = 0, totalEdges = 0;
+      for (const loop of loops) {
+        for (let i = 0; i < loop.length; i++) {
+          const a = ns[loop[i]], b = ns[loop[(i+1)%loop.length]];
+          totalLen += Math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2);
+          totalEdges++;
+        }
+      }
+      const meanEdge = totalEdges > 0 ? totalLen/totalEdges : 0;
+      const candidates = [];
+      for (let i = 1; i < loops.length; i++) {
+        if (loops[i].length < 8) continue;
+        const fit = fitCircleKasa(loops[i], ns);
+        if (!fit) continue;
+        if (fit.r < meanEdge * 1.5) continue;
+        if (fit.rms / fit.r > 0.05) continue;
+        candidates.push(fit);
+      }
+      candidates.sort((a, b) => b.r - a.r);
+      candidates.forEach((fit, k) => {
+        const lab = candidates.length === 1 ? "d" : `d${k+1}`;
+        dims.push({
+          kind: "diameter",
+          label: lab,
+          center: w([fit.cx, fit.cy, 0]),
+          edge: w([fit.cx + fit.r, fit.cy, 0]),
+          value: 2 * fit.r,
+        });
+      });
+    }
+  }
+  return dims;
+}
+
+function formatDimVal(v) {
+  const a = Math.abs(v);
+  if (a === 0) return "0";
+  if (a >= 100) return v.toFixed(1);
+  if (a >= 1) return v.toFixed(3);
+  if (a >= 0.01) return v.toFixed(4);
+  return v.toExponential(2);
+}
+
+function projectDimension(dim, cam, oHH, W, H) {
+  if (dim.kind === "linear") {
+    const sa = projectVtx(dim.p1, cam, oHH, W, H);
+    const sb = projectVtx(dim.p2, cam, oHH, W, H);
+    if (!sa || !sb) return null;
+    return { kind: "linear", a: [sa[0], sa[1]], b: [sb[0], sb[1]],
+      label: dim.label, value: dim.value };
+  }
+  if (dim.kind === "diameter") {
+    const sc = projectVtx(dim.center, cam, oHH, W, H);
+    const se = projectVtx(dim.edge, cam, oHH, W, H);
+    if (!sc || !se) return null;
+    const r = Math.sqrt((se[0]-sc[0])**2 + (se[1]-sc[1])**2);
+    return { kind: "diameter", c: [sc[0], sc[1]], r,
+      label: dim.label, value: dim.value };
+  }
+  return null;
+}
+
+function layoutDimensions(projected, bboxCenterScreen, offsetPx) {
+  const out = [];
+  for (const d of projected) {
+    if (d.kind === "linear") {
+      const dx = d.b[0]-d.a[0], dy = d.b[1]-d.a[1];
+      const L = Math.sqrt(dx*dx + dy*dy);
+      if (L < 4) continue;
+      let nx = -dy/L, ny = dx/L;
+      const mx = (d.a[0]+d.b[0])/2, my = (d.a[1]+d.b[1])/2;
+      const sign = nx*(mx-bboxCenterScreen[0]) + ny*(my-bboxCenterScreen[1]);
+      if (sign < 0) { nx = -nx; ny = -ny; }
+      const dim1 = [d.a[0] + nx*offsetPx, d.a[1] + ny*offsetPx];
+      const dim2 = [d.b[0] + nx*offsetPx, d.b[1] + ny*offsetPx];
+      const labelPos = [(dim1[0]+dim2[0])/2 + nx*9, (dim1[1]+dim2[1])/2 + ny*9];
+      let rot = Math.atan2(dim2[1]-dim1[1], dim2[0]-dim1[0]) * 180/Math.PI;
+      if (rot > 90) rot -= 180; else if (rot < -90) rot += 180;
+      out.push({ kind: "linear", ext1: d.a, ext2: d.b, dim1, dim2,
+        labelPos, label: d.label, value: d.value, rot });
+    } else if (d.kind === "diameter") {
+      const r = d.r;
+      if (r < 6) continue;
+      const a = [d.c[0]-r, d.c[1]];
+      const b = [d.c[0]+r, d.c[1]];
+      const labelPos = [d.c[0]+r+8, d.c[1]-6];
+      out.push({ kind: "diameter", c: d.c, r, dim1: a, dim2: b,
+        labelPos, label: d.label, value: d.value });
+    }
+  }
+  return out;
+}
+
+function projectAndLayoutDimensions(dims, cam, oHH, W, H, bboxCenterWorld) {
+  if (!dims || dims.length === 0) return [];
+  const projected = [];
+  for (const d of dims) {
+    const p = projectDimension(d, cam, oHH, W, H);
+    if (p) projected.push(p);
+  }
+  const sCenter = projectVtx(bboxCenterWorld, cam, oHH, W, H) || [W/2, H/2, 0];
+  return layoutDimensions(projected, [sCenter[0], sCenter[1]], 28);
+}
+
+function dimensionsSVGFragment(laid) {
+  if (!laid || laid.length === 0) return "";
+  const out = [];
+  out.push(`<g font-family="${CM_FONT_FAMILY}" font-size="11.5" font-style="italic" fill="#222" stroke="#222">`);
+  for (const d of laid) {
+    if (d.kind === "linear") {
+      out.push(`<line x1="${d.ext1[0].toFixed(2)}" y1="${d.ext1[1].toFixed(2)}" x2="${d.dim1[0].toFixed(2)}" y2="${d.dim1[1].toFixed(2)}" stroke-width="0.5" fill="none"/>`);
+      out.push(`<line x1="${d.ext2[0].toFixed(2)}" y1="${d.ext2[1].toFixed(2)}" x2="${d.dim2[0].toFixed(2)}" y2="${d.dim2[1].toFixed(2)}" stroke-width="0.5" fill="none"/>`);
+      out.push(`<line x1="${d.dim1[0].toFixed(2)}" y1="${d.dim1[1].toFixed(2)}" x2="${d.dim2[0].toFixed(2)}" y2="${d.dim2[1].toFixed(2)}" stroke-width="0.7" fill="none"/>`);
+      const dx = d.dim2[0]-d.dim1[0], dy = d.dim2[1]-d.dim1[1];
+      const L = Math.sqrt(dx*dx + dy*dy);
+      if (L > 1e-6) {
+        const ux = dx/L, uy = dy/L, hL = 7, hW = 2.6;
+        const a1 = `${d.dim1[0].toFixed(2)},${d.dim1[1].toFixed(2)} ${(d.dim1[0]+ux*hL-uy*hW).toFixed(2)},${(d.dim1[1]+uy*hL+ux*hW).toFixed(2)} ${(d.dim1[0]+ux*hL+uy*hW).toFixed(2)},${(d.dim1[1]+uy*hL-ux*hW).toFixed(2)}`;
+        const a2 = `${d.dim2[0].toFixed(2)},${d.dim2[1].toFixed(2)} ${(d.dim2[0]-ux*hL-uy*hW).toFixed(2)},${(d.dim2[1]-uy*hL+ux*hW).toFixed(2)} ${(d.dim2[0]-ux*hL+uy*hW).toFixed(2)},${(d.dim2[1]-uy*hL-ux*hW).toFixed(2)}`;
+        out.push(`<polygon points="${a1}" stroke="none" fill="#222"/>`);
+        out.push(`<polygon points="${a2}" stroke="none" fill="#222"/>`);
+      }
+      const txt = `${d.label} = ${formatDimVal(d.value)}`;
+      out.push(`<text x="${d.labelPos[0].toFixed(2)}" y="${d.labelPos[1].toFixed(2)}" text-anchor="middle" stroke="none" fill="#222" transform="rotate(${d.rot.toFixed(2)},${d.labelPos[0].toFixed(2)},${d.labelPos[1].toFixed(2)})">${escapeXML(txt)}</text>`);
+    } else if (d.kind === "diameter") {
+      out.push(`<line x1="${d.dim1[0].toFixed(2)}" y1="${d.dim1[1].toFixed(2)}" x2="${d.dim2[0].toFixed(2)}" y2="${d.dim2[1].toFixed(2)}" stroke-width="0.7" fill="none"/>`);
+      const hL = 7, hW = 2.6;
+      const a1 = `${d.dim1[0].toFixed(2)},${d.dim1[1].toFixed(2)} ${(d.dim1[0]+hL).toFixed(2)},${(d.dim1[1]+hW).toFixed(2)} ${(d.dim1[0]+hL).toFixed(2)},${(d.dim1[1]-hW).toFixed(2)}`;
+      const a2 = `${d.dim2[0].toFixed(2)},${d.dim2[1].toFixed(2)} ${(d.dim2[0]-hL).toFixed(2)},${(d.dim2[1]+hW).toFixed(2)} ${(d.dim2[0]-hL).toFixed(2)},${(d.dim2[1]-hW).toFixed(2)}`;
+      out.push(`<polygon points="${a1}" stroke="none" fill="#222"/>`);
+      out.push(`<polygon points="${a2}" stroke="none" fill="#222"/>`);
+      const txt = `⌀ ${formatDimVal(d.value)}`;
+      out.push(`<text x="${d.labelPos[0].toFixed(2)}" y="${d.labelPos[1].toFixed(2)}" text-anchor="start" stroke="none" fill="#222">${escapeXML(txt)}</text>`);
+    }
+  }
+  out.push(`</g>`);
+  return out.join("\n");
+}
+
+function dimensionsEPSFragment(laid, H) {
+  if (!laid || laid.length === 0) return "";
+  const ps = [];
+  ps.push(`0.13 0.13 0.13 setrgbcolor 0.5 setlinewidth 1 setlinecap`);
+  const flipY = (y) => (H - y).toFixed(2);
+  for (const d of laid) {
+    if (d.kind === "linear") {
+      ps.push(`newpath ${d.ext1[0].toFixed(2)} ${flipY(d.ext1[1])} moveto ${d.dim1[0].toFixed(2)} ${flipY(d.dim1[1])} lineto stroke`);
+      ps.push(`newpath ${d.ext2[0].toFixed(2)} ${flipY(d.ext2[1])} moveto ${d.dim2[0].toFixed(2)} ${flipY(d.dim2[1])} lineto stroke`);
+      ps.push(`0.7 setlinewidth newpath ${d.dim1[0].toFixed(2)} ${flipY(d.dim1[1])} moveto ${d.dim2[0].toFixed(2)} ${flipY(d.dim2[1])} lineto stroke 0.5 setlinewidth`);
+      const dx = d.dim2[0]-d.dim1[0], dy = d.dim2[1]-d.dim1[1];
+      const L = Math.sqrt(dx*dx + dy*dy);
+      if (L > 1e-6) {
+        const ux = dx/L, uy = dy/L, hL = 7, hW = 2.6;
+        // Arrows (filled triangles). Note flipped Y direction in EPS.
+        ps.push(`newpath ${d.dim1[0].toFixed(2)} ${flipY(d.dim1[1])} moveto ${(d.dim1[0]+ux*hL-uy*hW).toFixed(2)} ${flipY(d.dim1[1]+uy*hL+ux*hW)} lineto ${(d.dim1[0]+ux*hL+uy*hW).toFixed(2)} ${flipY(d.dim1[1]+uy*hL-ux*hW)} lineto closepath fill`);
+        ps.push(`newpath ${d.dim2[0].toFixed(2)} ${flipY(d.dim2[1])} moveto ${(d.dim2[0]-ux*hL-uy*hW).toFixed(2)} ${flipY(d.dim2[1]-uy*hL+ux*hW)} lineto ${(d.dim2[0]-ux*hL+uy*hW).toFixed(2)} ${flipY(d.dim2[1]-uy*hL-ux*hW)} lineto closepath fill`);
+      }
+      ps.push(`CMFont 11.5 scalefont setfont`);
+      const txt = `${d.label} = ${formatDimVal(d.value)}`;
+      ps.push(`gsave ${d.labelPos[0].toFixed(2)} ${flipY(d.labelPos[1])} translate ${(-d.rot).toFixed(2)} rotate (${escapePSString(txt)}) dup stringwidth pop 2 div neg 0 moveto show grestore`);
+    } else if (d.kind === "diameter") {
+      ps.push(`0.7 setlinewidth newpath ${d.dim1[0].toFixed(2)} ${flipY(d.dim1[1])} moveto ${d.dim2[0].toFixed(2)} ${flipY(d.dim2[1])} lineto stroke 0.5 setlinewidth`);
+      const hL = 7, hW = 2.6;
+      ps.push(`newpath ${d.dim1[0].toFixed(2)} ${flipY(d.dim1[1])} moveto ${(d.dim1[0]+hL).toFixed(2)} ${flipY(d.dim1[1]+hW)} lineto ${(d.dim1[0]+hL).toFixed(2)} ${flipY(d.dim1[1]-hW)} lineto closepath fill`);
+      ps.push(`newpath ${d.dim2[0].toFixed(2)} ${flipY(d.dim2[1])} moveto ${(d.dim2[0]-hL).toFixed(2)} ${flipY(d.dim2[1]+hW)} lineto ${(d.dim2[0]-hL).toFixed(2)} ${flipY(d.dim2[1]-hW)} lineto closepath fill`);
+      const txt = `${d.label} = ${formatDimVal(d.value)}`;
+      ps.push(`CMFont 11.5 scalefont setfont`);
+      ps.push(`${d.labelPos[0].toFixed(2)} ${flipY(d.labelPos[1])} moveto (${escapePSString(txt)}) show`);
+    }
+  }
+  return ps.join("\n");
+}
+
+function dimensionsPDFFragment(laid, H) {
+  if (!laid || laid.length === 0) return "";
+  const out = [];
+  const flipY = (y) => (H - y).toFixed(2);
+  out.push(`0.13 0.13 0.13 RG 0.13 0.13 0.13 rg 0.5 w 1 J 0 j`);
+  for (const d of laid) {
+    if (d.kind === "linear") {
+      out.push(`${d.ext1[0].toFixed(2)} ${flipY(d.ext1[1])} m ${d.dim1[0].toFixed(2)} ${flipY(d.dim1[1])} l S`);
+      out.push(`${d.ext2[0].toFixed(2)} ${flipY(d.ext2[1])} m ${d.dim2[0].toFixed(2)} ${flipY(d.dim2[1])} l S`);
+      out.push(`0.7 w ${d.dim1[0].toFixed(2)} ${flipY(d.dim1[1])} m ${d.dim2[0].toFixed(2)} ${flipY(d.dim2[1])} l S 0.5 w`);
+      const dx = d.dim2[0]-d.dim1[0], dy = d.dim2[1]-d.dim1[1];
+      const L = Math.sqrt(dx*dx + dy*dy);
+      if (L > 1e-6) {
+        const ux = dx/L, uy = dy/L, hL = 7, hW = 2.6;
+        out.push(`${d.dim1[0].toFixed(2)} ${flipY(d.dim1[1])} m ${(d.dim1[0]+ux*hL-uy*hW).toFixed(2)} ${flipY(d.dim1[1]+uy*hL+ux*hW)} l ${(d.dim1[0]+ux*hL+uy*hW).toFixed(2)} ${flipY(d.dim1[1]+uy*hL-ux*hW)} l h f`);
+        out.push(`${d.dim2[0].toFixed(2)} ${flipY(d.dim2[1])} m ${(d.dim2[0]-ux*hL-uy*hW).toFixed(2)} ${flipY(d.dim2[1]-uy*hL+ux*hW)} l ${(d.dim2[0]-ux*hL+uy*hW).toFixed(2)} ${flipY(d.dim2[1]-uy*hL-ux*hW)} l h f`);
+      }
+      const txt = `${d.label} = ${formatDimVal(d.value)}`;
+      const a = -d.rot * Math.PI / 180; // PDF y-up; rotate inverse to match SVG y-down
+      const ca = Math.cos(a).toFixed(5), sa = Math.sin(a).toFixed(5), nsa = (-Math.sin(a)).toFixed(5);
+      const tx = d.labelPos[0].toFixed(2), ty = flipY(d.labelPos[1]);
+      // Approx text width centering using 0.55 * fontSize per char average
+      const tw = txt.length * 11.5 * 0.5;
+      out.push(`BT /F1 11.5 Tf ${ca} ${sa} ${nsa} ${ca} ${tx} ${ty} Tm ${(-tw/2).toFixed(2)} 0 Td (${escapePSString(txt)}) Tj ET`);
+    } else if (d.kind === "diameter") {
+      out.push(`0.7 w ${d.dim1[0].toFixed(2)} ${flipY(d.dim1[1])} m ${d.dim2[0].toFixed(2)} ${flipY(d.dim2[1])} l S 0.5 w`);
+      const hL = 7, hW = 2.6;
+      out.push(`${d.dim1[0].toFixed(2)} ${flipY(d.dim1[1])} m ${(d.dim1[0]+hL).toFixed(2)} ${flipY(d.dim1[1]+hW)} l ${(d.dim1[0]+hL).toFixed(2)} ${flipY(d.dim1[1]-hW)} l h f`);
+      out.push(`${d.dim2[0].toFixed(2)} ${flipY(d.dim2[1])} m ${(d.dim2[0]-hL).toFixed(2)} ${flipY(d.dim2[1]+hW)} l ${(d.dim2[0]-hL).toFixed(2)} ${flipY(d.dim2[1]-hW)} l h f`);
+      const txt = `${d.label} = ${formatDimVal(d.value)}`;
+      out.push(`BT /F1 11.5 Tf ${d.labelPos[0].toFixed(2)} ${flipY(d.labelPos[1])} Td (${escapePSString(txt)}) Tj ET`);
+    }
+  }
+  return out.join("\n");
+}
+
+function computeExportScene(meshData, activeField, showDef, defScale, camParams, W, H, dMode, cN, eMin, eMax, showDims) {
   if (!meshData) return null;
   const ns = meshData.nodes;
   const cen = [0,0,0], mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
@@ -634,7 +983,16 @@ function computeExportScene(meshData, activeField, showDef, defScale, camParams,
   let nEdges = 0;
   for (const face of bfaces) nEdges += face.length;
   const lp = autoLineWeight(nEdges);
-  return { faces: exportFaces, visibleEdges, contours, lp, fieldName: activeField, fmin: efMin, fmax: efMax, W, H };
+
+  // Optional dimensioning overlay — projected and laid out in screen space.
+  let dimsOverlay = null;
+  if (showDims) {
+    const rawDims = buildDimensions(meshData);
+    const cenWN = [0, 0, 0]; // bbox center in normalized frame is the origin
+    dimsOverlay = projectAndLayoutDimensions(rawDims, cam, oHH, W, H, cenWN);
+  }
+
+  return { faces: exportFaces, visibleEdges, contours, lp, fieldName: activeField, fmin: efMin, fmax: efMax, W, H, dims: dimsOverlay };
 }
 
 // ─── SVG Export ───
@@ -650,7 +1008,7 @@ function escapePSString(s) {
   return String(s).replace(/([\\()])/g, "\\$1");
 }
 function exportSVG(scene) {
-  const {faces, visibleEdges, contours, lp, fieldName, fmin, fmax, W, H} = scene;
+  const {faces, visibleEdges, contours, lp, fieldName, fmin, fmax, W, H, dims} = scene;
   const lines = [];
   lines.push(`<?xml version="1.0" encoding="UTF-8"?>`);
   lines.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
@@ -698,13 +1056,15 @@ function exportSVG(scene) {
     lines.push(`<text x="${bx+bw+16}" y="${by+bh/2}" font-family="${CM_FONT_FAMILY}" font-size="14" font-weight="bold" fill="#333" text-anchor="middle" transform="rotate(90,${bx+bw+16},${by+bh/2})">${escapeXML(fieldName)}</text>`);
   }
 
+  if (dims && dims.length) lines.push(dimensionsSVGFragment(dims));
+
   lines.push(`</svg>`);
   return lines.join("\n");
 }
 
 // ─── EPS Export ───
 function exportEPS(scene) {
-  const {faces, visibleEdges, contours, lp, fieldName, fmin, fmax, W, H} = scene;
+  const {faces, visibleEdges, contours, lp, fieldName, fmin, fmax, W, H, dims} = scene;
   const ps = [];
   ps.push(`%!PS-Adobe-3.0 EPSF-3.0`);
   ps.push(`%%BoundingBox: 0 0 ${W} ${H}`);
@@ -769,13 +1129,15 @@ function exportEPS(scene) {
     ps.push(`grestore`);
   }
 
+  if (dims && dims.length) ps.push(dimensionsEPSFragment(dims, H));
+
   ps.push(`%%EOF`);
   return ps.join("\n");
 }
 
 // ─── PDF Export (vector, minimal valid PDF) ───
 function exportPDF(scene) {
-  const {faces, visibleEdges, contours, lp, fieldName, fmin, fmax, W, H} = scene;
+  const {faces, visibleEdges, contours, lp, fieldName, fmin, fmax, W, H, dims} = scene;
   const stream = [];
 
   stream.push(`1 1 1 rg 0 0 ${W} ${H} re f`);
@@ -830,6 +1192,8 @@ function exportPDF(scene) {
     stream.push(`BT /F1 14 Tf 0 1 -1 0 ${bx+bw+16} ${byBot+bh/4} Tm (${escapePSString(fieldName)}) Tj ET`);
   }
 
+  if (dims && dims.length) stream.push(dimensionsPDFFragment(dims, H));
+
   const content = stream.join("\n");
   const contentBytes = new TextEncoder().encode(content);
 
@@ -881,13 +1245,19 @@ export default function FEPostprocessor() {
   const touchRef=useRef({active:false,x:0,y:0,dist:0,count:0});
   const bboxRef=useRef({mn:[-1,-1,-1],mx:[1,1,1]}); // normalized mesh bbox
   const needsFitRef=useRef(true); // auto zoom-to-fit on first load
+  // Dimensioning overlay: cached per-mesh annotations + DOM ref for SVG output.
+  const dimsOverlayRef=useRef(null);
+  const dimsCacheRef=useRef(null);
+  const dimsActiveRef=useRef(false);
 
   const [meshData,setMeshData]=useState(null);
   const [activeDemo,setActiveDemo]=useState(-1);
   const [activeFinerDemo,setActiveFinerDemo]=useState(-1);
   const [activeField,setActiveField]=useState("");
 
-  const [displayMode,setDisplayMode]=useState("plot"); // "wireframe"|"plot"|"lines"
+  const [displayMode,setDisplayMode]=useState("plot"); // "wireframe"|"plot"|"plain"|"lines"
+  // Optional dimensioning overlay for "plain" mode (mesh lines off).
+  const [showDimensions,setShowDimensions]=useState(false);
   const [showDef,setShowDef]=useState(false);
   const [defScale,setDefScale]=useState(1);
   const [contourN,setContourN]=useState(10);
@@ -1071,7 +1441,7 @@ export default function FEPostprocessor() {
       polygonOffset:true, polygonOffsetFactor:1, polygonOffsetUnits:1,
     })));
 
-    const showFill = displayMode==="plot"||displayMode==="lines";
+    const showFill = displayMode==="plot"||displayMode==="lines"||displayMode==="plain";
     const showAllEdges = displayMode==="wireframe"||displayMode==="plot";
     const showIsoLines = displayMode==="lines";
     const showFeatureOnly = displayMode==="lines";
@@ -1197,6 +1567,25 @@ export default function FEPostprocessor() {
         ren.render(triadScene,triadCam);
       }
       ren.setScissorTest(false);
+
+      // Dimension overlay: project & layout each frame so the labels follow
+      // the camera. Imperative innerHTML keeps this off the React render path.
+      const overlayEl = dimsOverlayRef.current;
+      if (overlayEl) {
+        if (dimsActiveRef.current && dimsCacheRef.current && dimsCacheRef.current.length) {
+          const cam2 = buildCamera(c);
+          const laid = projectAndLayoutDimensions(dimsCacheRef.current, cam2, c.dist, cw, ch, [0,0,0]);
+          if (laid.length) {
+            overlayEl.setAttribute("viewBox", `0 0 ${cw} ${ch}`);
+            overlayEl.innerHTML = dimensionsSVGFragment(laid);
+          } else if (overlayEl.childNodes.length) {
+            overlayEl.innerHTML = "";
+          }
+        } else if (overlayEl.childNodes.length) {
+          overlayEl.innerHTML = "";
+        }
+      }
+
       animRef.current=requestAnimationFrame(animate);
     };
     animate();
@@ -1219,6 +1608,17 @@ export default function FEPostprocessor() {
     const r=sceneRef.current.renderer;
     if(r){ r.dispose(); r.forceContextLoss?.(); sceneRef.current.renderer=null; }
   },[]);
+
+  // Recompute dimensions only when the mesh changes (deterministic, mesh-only feature).
+  useEffect(()=>{
+    dimsCacheRef.current = meshData ? buildDimensions(meshData) : null;
+  },[meshData]);
+
+  // Toggle the live overlay without rebuilding the Three.js scene.
+  useEffect(()=>{
+    dimsActiveRef.current = showDimensions && displayMode==="plain";
+    if (!dimsActiveRef.current && dimsOverlayRef.current) dimsOverlayRef.current.innerHTML = "";
+  },[showDimensions, displayMode]);
 
   useEffect(()=>{
     const fn=()=>{const c=canvasRef.current;if(!c||!sceneRef.current.renderer)return;
@@ -1376,7 +1776,8 @@ export default function FEPostprocessor() {
     const EW = 800, EH = 600;
     const em = userMin!==""&&!isNaN(parseFloat(userMin)) ? parseFloat(userMin) : null;
     const ex = userMax!==""&&!isNaN(parseFloat(userMax)) ? parseFloat(userMax) : null;
-    const scene = computeExportScene(meshData, activeField, showDef, defScale, camRef.current, EW, EH, displayMode, contourN, em, ex);
+    const dimsActive = showDimensions && displayMode==="plain";
+    const scene = computeExportScene(meshData, activeField, showDef, defScale, camRef.current, EW, EH, displayMode, contourN, em, ex, dimsActive);
     if (!scene) return;
     if (fmt === "svg") {
       downloadBlob(exportSVG(scene), (meshData.name||"mesh").replace(/\.[^.]+$/,"")+".svg", "image/svg+xml");
@@ -1385,7 +1786,7 @@ export default function FEPostprocessor() {
     } else if (fmt === "pdf") {
       downloadBlob(exportPDF(scene), (meshData.name||"mesh").replace(/\.[^.]+$/,"")+".pdf", "application/pdf");
     }
-  }, [meshData, activeField, showDef, defScale, displayMode, contourN, userMin, userMax]);
+  }, [meshData, activeField, showDef, defScale, displayMode, contourN, userMin, userMax, showDimensions]);
 
   const sFields=meshData?Object.keys(meshData.fields||{}).filter(f=>meshData.fields[f].type==="scalar"):[];
   const effMin = userMin!==""&&!isNaN(parseFloat(userMin)) ? parseFloat(userMin) : fRange[0];
@@ -1438,7 +1839,7 @@ export default function FEPostprocessor() {
           {log&&<div style={{fontSize:9,color:"#5a7",marginTop:4,lineHeight:1.4}}>{log}</div>}
 
           <div style={{color:"#4a9eff",fontSize:11,fontWeight:600,borderBottom:"1px solid #2a2e38",paddingBottom:3,marginBottom:5,marginTop:12}}>Display</div>
-          {[["wireframe","Wireframe"],["plot","Contour Plot"],["lines","Contour Lines"]].map(([v,l])=>(
+          {[["wireframe","Wireframe"],["plot","Contour Plot"],["plain","Plain (no mesh lines)"],["lines","Contour Lines"]].map(([v,l])=>(
             <label key={v} style={{display:"flex",alignItems:"center",gap:6,padding:"2px 0",cursor:"pointer"}}>
               <input type="radio" name="dmode" checked={displayMode===v} onChange={()=>setDisplayMode(v)}/>{l}
             </label>))}
@@ -1453,6 +1854,12 @@ export default function FEPostprocessor() {
                 onKeyUp={e=>setContourN(parseInt(e.target.value))}
                 style={{width:"100%",accentColor:"#4a9eff"}}/>
             </div>
+          )}
+          {displayMode==="plain"&&(
+            <label style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0 2px 0",cursor:"pointer",marginTop:2}}>
+              <input type="checkbox" checked={showDimensions} onChange={e=>setShowDimensions(e.target.checked)}/>
+              <span style={{color:"#aac"}}>Show dimensions</span>
+            </label>
           )}
 
           <div style={{color:"#4a9eff",fontSize:11,fontWeight:600,borderBottom:"1px solid #2a2e38",paddingBottom:3,marginBottom:5,marginTop:12}}>Field</div>
@@ -1582,6 +1989,7 @@ export default function FEPostprocessor() {
             onMouseDown={onMD} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={onMU}
             onWheel={onWH} onContextMenu={e=>e.preventDefault()}
             onTouchStart={onTS} onTouchMove={onTM} onTouchEnd={onTE}/>
+          <svg ref={dimsOverlayRef} style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",pointerEvents:"none"}} preserveAspectRatio="none"/>
           <div style={{position:"absolute",top:8,left:8,fontSize:13,color:"#666",pointerEvents:"none",fontFamily:"'Computer Modern Serif',serif",fontWeight:700}}>{info}</div>
           {activeField&&(
             <div style={{position:"absolute",right:18,top:"50%",transform:"translateY(-50%)",display:"flex",alignItems:"center",gap:7,pointerEvents:"none",fontFamily:"'Computer Modern Serif',serif",fontWeight:700}}>
