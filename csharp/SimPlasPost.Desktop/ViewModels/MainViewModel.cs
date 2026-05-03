@@ -69,7 +69,7 @@ public class MainViewModel : INotifyPropertyChanged
     private string _activeField = "";
     public string ActiveField { get => _activeField; set { if (Set(ref _activeField, value)) { UserMin = ""; UserMax = ""; InvalidateScene(); } } }
 
-    private DisplayMode _displayMode = DisplayMode.Plot;
+    private DisplayMode _displayMode = DisplayMode.Plain;
     public DisplayMode DisplayMode_ { get => _displayMode; set { if (Set(ref _displayMode, value)) InvalidateScene(); } }
 
     private bool _showDef;
@@ -105,7 +105,7 @@ public class MainViewModel : INotifyPropertyChanged
     // The downstream renderer / PDF exporter consume the effective
     // <see cref="ShowPlainLighting"/>; the checkbox in the sidebar
     // binds to <see cref="ShowPlainLightingPref"/>.
-    private bool _showPlainMeshLines;
+    private bool _showPlainMeshLines = true;
     public bool ShowPlainMeshLines
     {
         get => _showPlainMeshLines;
@@ -194,7 +194,17 @@ public class MainViewModel : INotifyPropertyChanged
 
     public MainViewModel()
     {
-        LoadDemo(0);
+        // Default opening view: Happy Buddha in Plain mode with mesh
+        // lines + lighting on — a dense organic mesh that immediately
+        // shows off the structural-view rendering on launch.  Looked up
+        // by name so a re-ordering of the demo list still picks the
+        // right entry; falls back to index 0 if the embedded resource
+        // is missing.  Seed the backing field directly so the combobox
+        // selection in the sidebar matches the loaded mesh on launch.
+        int idx = Array.FindIndex(_demos, d => d.Name == "Happy Buddha");
+        if (idx < 0) idx = 0;
+        _activeDemo = idx;
+        LoadDemo(idx);
     }
 
     private void LoadDemo(int index)
