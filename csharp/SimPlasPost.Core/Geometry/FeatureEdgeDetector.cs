@@ -7,20 +7,25 @@ public static class FeatureEdgeDetector
 {
     /// <summary>
     /// Extract feature edges from boundary faces using a dihedral-angle
-    /// threshold expressed as the angle BETWEEN the two adjacent face
-    /// normals.  An edge is kept when that angle is strictly greater
-    /// than <paramref name="angleDeg"/>:
-    ///   • angle = atan2(|n₁ × n₂|, n₁ · n₂)  for unit normals.
-    /// Using atan2 (rather than acos(dot) or dot &lt; cos(θ)) keeps the
-    /// classifier numerically robust on near-flat surfaces where the
-    /// dot product is close to 1 and the cosine comparison loses
+    /// threshold expressed as the (acute) angle between the planes of the
+    /// two adjacent faces.  An edge is kept when that angle is strictly
+    /// greater than <paramref name="angleDeg"/>:
+    ///   • angle = atan2(|n₁ × n₂|, |n₁ · n₂|)  for unit normals.
+    /// The absolute value on the dot folds the [0, π] range down to the
+    /// acute side [0, π/2].  This makes the classifier insensitive to
+    /// face winding: an inverted neighbour produces a flipped normal
+    /// (n₁ · n₂ ≈ −1) which without the abs() would register as a 180°
+    /// "fold" and emit the entire mesh's interior as feature edges.
+    /// Using atan2 (rather than acos(dot) or dot &lt; cos(θ)) also keeps
+    /// the classifier numerically robust on near-flat surfaces where the
+    /// dot product saturates at ±1 and the cosine comparison loses
     /// significant precision.
     ///
     /// Returns a flat array of positions: [ax, ay, az, bx, by, bz, ...]
     /// (6 doubles per edge, packed for the GL line-list / PDF stroke
     /// pipelines).
     /// </summary>
-    public static double[] Extract(List<int[]> bfaces, double[][] dp, double angleDeg = 20.0)
+    public static double[] Extract(List<int[]> bfaces, double[][] dp, double angleDeg = 35.0)
     {
         double angleThresh = angleDeg * Math.PI / 180.0;
 
@@ -69,11 +74,16 @@ public static class FeatureEdgeDetector
             {
                 var n1 = fNormals[fis[0]];
                 var n2 = fNormals[fis[1]];
-                // angle between unit normals = atan2(|n₁ × n₂|, n₁ · n₂);
-                // numerically stable across the full [0, π] range.
+                // Acute angle between unit normals:
+                //   atan2(|n₁ × n₂|, |n₁ · n₂|)
+                // The abs on the dot folds [0, π] into [0, π/2] so a
+                // neighbouring face with inverted winding (n₁ · n₂ ≈ −1)
+                // is treated the same as a consistently-wound near-flat
+                // pair (n₁ · n₂ ≈ +1), instead of registering as a
+                // spurious 180° crease.
                 double dot = Vec3.Dot(n1, n2);
                 var cross = Vec3.Cross(n1, n2);
-                double angle = Math.Atan2(cross.Length, dot);
+                double angle = Math.Atan2(cross.Length, Math.Abs(dot));
                 if (angle > angleThresh) keep = true;
             }
 

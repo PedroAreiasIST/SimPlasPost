@@ -44,11 +44,10 @@ public class MeshOverlay : Control
         var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
 
         // Color bar is meaningful in Plot and Lines modes (where a scalar
-        // field actually colours the geometry).  Wireframe and Geometry
-        // are both purely structural views — drop the bar.
+        // field actually colours the geometry).  Plain is a purely
+        // structural view — drop the bar.
         if (!string.IsNullOrEmpty(_vm.ActiveField) &&
-            _vm.DisplayMode_ != DisplayMode.Wireframe &&
-            _vm.DisplayMode_ != DisplayMode.Geometry)
+            _vm.DisplayMode_ != DisplayMode.Plain)
             DrawColorBar(context, bounds);
         // Contour labels: only meaningful in Lines mode (we don't draw
         // iso-contour lines in any other mode).

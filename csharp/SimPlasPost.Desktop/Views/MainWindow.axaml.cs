@@ -373,19 +373,34 @@ public partial class MainWindow : Window
     // ─── Display mode ───
     private void OnDisplayModeChanged(object? sender, RoutedEventArgs e)
     {
-        if (RbWireframe.IsChecked == true) _vm.DisplayMode_ = DisplayMode.Wireframe;
+        if (RbPlain.IsChecked == true) _vm.DisplayMode_ = DisplayMode.Plain;
         else if (RbPlot.IsChecked == true) _vm.DisplayMode_ = DisplayMode.Plot;
         else if (RbLines.IsChecked == true) _vm.DisplayMode_ = DisplayMode.Lines;
-        else if (RbGeometry.IsChecked == true) _vm.DisplayMode_ = DisplayMode.Geometry;
 
         // Show only the option panel that applies to the active mode.
-        PnlPlotOptions.IsVisible = _vm.DisplayMode_ == DisplayMode.Plot;
-        PnlContourN.IsVisible    = _vm.DisplayMode_ == DisplayMode.Lines;
+        PnlPlainOptions.IsVisible = _vm.DisplayMode_ == DisplayMode.Plain;
+        PnlPlotOptions.IsVisible  = _vm.DisplayMode_ == DisplayMode.Plot;
+        PnlContourN.IsVisible     = _vm.DisplayMode_ == DisplayMode.Lines;
     }
 
     private void OnMeshLinesChanged(object? sender, RoutedEventArgs e)
     {
         if (_vm != null) _vm.ShowMeshLines = CbMeshLines.IsChecked == true;
+    }
+
+    private void OnPlainMeshLinesChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_vm != null) _vm.ShowPlainMeshLines = CbPlainMeshLines.IsChecked == true;
+    }
+
+    private void OnPlainGeometryEdgesChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_vm != null) _vm.ShowPlainGeometryEdges = CbPlainGeometryEdges.IsChecked == true;
+    }
+
+    private void OnPlainLightingChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_vm != null) _vm.ShowPlainLighting = CbPlainLighting.IsChecked == true;
     }
 
     private void OnContourNChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
