@@ -94,6 +94,21 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _showMeshLines = true;
     public bool ShowMeshLines { get => _showMeshLines; set { if (Set(ref _showMeshLines, value)) InvalidateScene(); } }
 
+    // ─── Plain-mode toggles ───
+    // Plain replaces the old Wireframe + Geometry modes with one
+    // structural-view surface and three orthogonal switches.  Defaults
+    // emulate the old Geometry mode (lit faces + crease lines) since
+    // that's the most informative view; the user can flip toggles to
+    // get back the wireframe-style "every edge, no lighting" rendering.
+    private bool _showPlainMeshLines;
+    public bool ShowPlainMeshLines { get => _showPlainMeshLines; set { if (Set(ref _showPlainMeshLines, value)) InvalidateScene(); } }
+
+    private bool _showPlainGeometryEdges = true;
+    public bool ShowPlainGeometryEdges { get => _showPlainGeometryEdges; set { if (Set(ref _showPlainGeometryEdges, value)) InvalidateScene(); } }
+
+    private bool _showPlainLighting = true;
+    public bool ShowPlainLighting { get => _showPlainLighting; set { if (Set(ref _showPlainLighting, value)) InvalidateScene(); } }
+
     /// <summary>
     /// World-space label candidates produced by the renderer in
     /// Contour-Lines mode when <see cref="ShowContourLabels"/> is on.  The
@@ -184,7 +199,13 @@ public class MainViewModel : INotifyPropertyChanged
         double? eMin = double.TryParse(UserMin, out var mn) ? mn : null;
         double? eMax = double.TryParse(UserMax, out var mx) ? mx : null;
 
-        var scene = SceneBuilder.Build(MeshData, ActiveField, ShowDef, DefScale, Camera, w, h, DisplayMode_, ContourN, eMin, eMax);
+        var scene = SceneBuilder.Build(MeshData, ActiveField, ShowDef, DefScale,
+            Camera, w, h, DisplayMode_, ContourN, eMin, eMax,
+            showContourLabels: ShowContourLabels,
+            showMeshLines: ShowMeshLines,
+            showPlainMeshLines: ShowPlainMeshLines,
+            showPlainGeometryEdges: ShowPlainGeometryEdges,
+            showPlainLighting: ShowPlainLighting);
 
         if (scene != null)
         {
@@ -268,7 +289,10 @@ public class MainViewModel : INotifyPropertyChanged
         var scene = SceneBuilder.Build(MeshData, ActiveField, ShowDef, DefScale,
             Camera, w, h, DisplayMode_, ContourN, eMin, eMax,
             showContourLabels: ShowContourLabels,
-            showMeshLines: ShowMeshLines);
+            showMeshLines: ShowMeshLines,
+            showPlainMeshLines: ShowPlainMeshLines,
+            showPlainGeometryEdges: ShowPlainGeometryEdges,
+            showPlainLighting: ShowPlainLighting);
         return scene != null ? PdfExporter.Export(scene) : Array.Empty<byte>();
     }
 

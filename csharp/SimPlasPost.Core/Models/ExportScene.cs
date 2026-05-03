@@ -116,19 +116,20 @@ public class LinePreset
 
 public enum DisplayMode
 {
-    /// <summary>Hidden-edge wireframe — only face edges visible, no fill colour.</summary>
-    Wireframe,
+    /// <summary>
+    /// Field-free structural view.  Three independent toggles control
+    /// what is drawn: mesh lines (every face edge), geometry edges
+    /// (feature edges where the dihedral angle exceeds 35°, computed
+    /// from |n₁ · n₂| so inverted-winding neighbours behave the
+    /// same as consistent ones), and lighting (Lambert grayscale
+    /// from a head-light).  Replaces the previous Wireframe and
+    /// Geometry modes in one orthogonal-options surface.
+    /// </summary>
+    Plain,
     /// <summary>Smooth or per-element field shading on the surface.</summary>
     Plot,
     /// <summary>Iso-contour line plot (white faces + coloured iso-lines).</summary>
     Lines,
-    /// <summary>
-    /// Lambert-shaded grayscale geometry view (engineering "shadows"
-    /// look).  No active field needed; the surface normal vs. the
-    /// camera forward direction drives the brightness, with optional
-    /// iso-contour lines drawn on top when a scalar field is active.
-    /// </summary>
-    Geometry,
 }
 
 public class ExportScene

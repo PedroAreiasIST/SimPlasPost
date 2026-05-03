@@ -15,7 +15,10 @@ public static class SceneBuilder
         CameraParams camParams, int w, int h, DisplayMode dMode, int contourN,
         double? eMinOverride, double? eMaxOverride,
         bool showContourLabels = false,
-        bool showMeshLines = true)
+        bool showMeshLines = true,
+        bool showPlainMeshLines = false,
+        bool showPlainGeometryEdges = true,
+        bool showPlainLighting = true)
     {
         if (meshData == null) return null;
 
@@ -93,10 +96,11 @@ public static class SceneBuilder
         var cam = Camera.Build(camParams);
         double orthoHH = camParams.Dist;
 
-        // Per-vertex world-space normals for the Geometry-mode Lambert
+        // Per-vertex world-space normals for the Plain-mode Lambert
         // grayscale path.  Same area-weighted accumulation as the GL
         // renderer (sum of incident face cross products, then normalise).
-        bool needNormals = effectiveMode == DisplayMode.Geometry;
+        bool plainLit = effectiveMode == DisplayMode.Plain && showPlainLighting;
+        bool needNormals = plainLit;
         double[] nx = needNormals ? new double[ns.Length] : Array.Empty<double>();
         double[] ny = needNormals ? new double[ns.Length] : Array.Empty<double>();
         double[] nz = needNormals ? new double[ns.Length] : Array.Empty<double>();
@@ -156,22 +160,27 @@ public static class SceneBuilder
             var bArr = new double[face.Length];
             double[]? tArr = null;
             int subdivN = 1;
-            if (effectiveMode == DisplayMode.Wireframe)
+            if (effectiveMode == DisplayMode.Plain && !plainLit)
             {
+                // Unlit Plain (the old "Wireframe" behaviour): flat white
+                // faces.  The page background is also white, so the fill
+                // is invisible but still occludes back-edges.
                 for (int j = 0; j < face.Length; j++) { rArr[j] = 1; gArr[j] = 1; bArr[j] = 1; }
             }
-            else if (effectiveMode == DisplayMode.Geometry)
+            else if (plainLit)
             {
-                // Lambert grayscale (head-light) — two-sided via abs() so
-                // back faces aren't black, plus a 0.25 ambient term for
-                // grazing legibility.  Identical formulation to the GL
-                // renderer's per-frame Geometry pass so the PDF and the
-                // screen agree pixel-for-pixel.
+                // Half-Lambert grayscale (head-light), two-sided via abs()
+                // so back faces aren't black.  Half-Lambert (square the
+                // wrapped dot) gives a softer terminator than plain
+                // Lambert, which reads better on monochrome surfaces.
+                // Same formulation runs in the GL per-frame pass so the
+                // PDF and the screen agree pixel-for-pixel.
                 for (int j = 0; j < face.Length; j++)
                 {
                     int v = face[j];
                     double dot = Math.Abs(nx[v] * lx + ny[v] * ly + nz[v] * lz);
-                    double gray = 0.25 + 0.75 * dot;
+                    double wrap = 0.5 + 0.5 * dot;
+                    double gray = 0.18 + 0.82 * wrap * wrap;
                     if (gray > 1) gray = 1;
                     rArr[j] = gray; gArr[j] = gray; bArr[j] = gray;
                 }
@@ -227,8 +236,8 @@ public static class SceneBuilder
                 });
             }
 
-            if (effectiveMode == DisplayMode.Wireframe ||
-                (effectiveMode == DisplayMode.Plot && showMeshLines))
+            if ((effectiveMode == DisplayMode.Plain && showPlainMeshLines) ||
+                (effectiveMode == DisplayMode.Plot  && showMeshLines))
             {
                 for (int j = 0; j < pts.Length; j++)
                     wireEdges3D.Add((pts[j], pts[(j + 1) % pts.Length]));
@@ -241,8 +250,8 @@ public static class SceneBuilder
         var zbuf = ZBufferRenderer.Build(exportFaces, w, h);
         var visibleEdges = new List<ProjectedEdge>();
 
-        // Wireframe/plot edges
-        if (effectiveMode == DisplayMode.Wireframe ||
+        // Plain/plot mesh-line edges
+        if ((effectiveMode == DisplayMode.Plain && showPlainMeshLines) ||
                 (effectiveMode == DisplayMode.Plot && showMeshLines))
         {
             foreach (var (a, b) in wireEdges3D)
@@ -253,19 +262,18 @@ public static class SceneBuilder
         }
 
         // Feature (silhouette / sharp-fold) edges:
-        //   • Lines mode — same long-standing default of 20° dihedral,
-        //     keeping silhouette + crease lines as a backdrop for the
-        //     iso-contours that follow.
-        //   • Geometry mode — 30° dihedral, the user-facing CAD-style
-        //     view: only reasonably sharp creases survive, so a smooth
-        //     organic mesh shows just its silhouette while a hard-
-        //     edged engineering part keeps its crease lines.
+        //   • Lines mode    — 20° dihedral, kept as a backdrop for the
+        //     iso-contours that follow (more silhouette + crease lines).
+        //   • Plain mode    — 35° dihedral when the user enables
+        //     "Geometry edges": only reasonably sharp creases survive,
+        //     so a smooth organic mesh shows just its silhouette while
+        //     a hard-edged engineering part keeps its crease lines.
         bool emitFeatureEdges = effectiveMode == DisplayMode.Lines ||
-                                effectiveMode == DisplayMode.Geometry;
+                                (effectiveMode == DisplayMode.Plain && showPlainGeometryEdges);
         bool emitContours = effectiveMode == DisplayMode.Lines;
         if (emitFeatureEdges)
         {
-            double angleDeg = effectiveMode == DisplayMode.Geometry ? 30.0 : 20.0;
+            double angleDeg = effectiveMode == DisplayMode.Plain ? 35.0 : 20.0;
             var featPos = FeatureEdgeDetector.Extract(bfaces, dp, angleDeg);
             for (int k = 0; k < featPos.Length; k += 6)
             {
@@ -368,13 +376,10 @@ public static class SceneBuilder
         int nEdges = bfaces.Sum(f => f.Length);
         var lp = LinePreset.Auto(nEdges);
 
-        // Wireframe mode: no color bar, no field coloring
-        // The PDF colour bar is keyed off scene.FieldName.  Wireframe and
-        // Geometry are both purely structural views with no field
-        // shading, so we suppress the field name (and therefore the bar)
-        // in both, mirroring the on-screen MeshOverlay behaviour.
-        string? displayFieldName = (dMode == DisplayMode.Wireframe ||
-                                    dMode == DisplayMode.Geometry)
+        // Plain mode: no color bar, no field coloring.  The PDF colour
+        // bar is keyed off scene.FieldName, so suppressing the field
+        // name there mirrors the on-screen MeshOverlay behaviour.
+        string? displayFieldName = dMode == DisplayMode.Plain
             ? null
             : activeField;
 

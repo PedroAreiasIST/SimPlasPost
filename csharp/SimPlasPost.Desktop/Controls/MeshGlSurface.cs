@@ -43,6 +43,9 @@ public class MeshGlSurface : OpenGlControlBase
     private int _cachedContourN = -1;
     private bool _cachedShowLabels;
     private bool _cachedShowMeshLines = true;
+    private bool _cachedPlainMeshLines;
+    private bool _cachedPlainGeometryEdges = true;
+    private bool _cachedPlainLighting = true;
     private bool _geomDirty = true;
 
     private float[] _posX = Array.Empty<float>();
@@ -54,8 +57,8 @@ public class MeshGlSurface : OpenGlControlBase
     private bool[] _drawEdges = Array.Empty<bool>();
     // Per-node world-space normals, area-weighted average of incident face
     // cross products.  Computed once per RebuildGeometry; consumed every
-    // frame by the Geometry-mode lighting pass to derive grayscale shading
-    // from n · cam.Forward.
+    // frame by the Plain+Lighting pass to derive grayscale shading from
+    // n · cam.Forward.
     private float[] _normX = Array.Empty<float>();
     private float[] _normY = Array.Empty<float>();
     private float[] _normZ = Array.Empty<float>();
@@ -111,7 +114,10 @@ public class MeshGlSurface : OpenGlControlBase
         _vm.CurrentStep != _cachedStep ||
         _vm.ContourN != _cachedContourN ||
         _vm.ShowContourLabels != _cachedShowLabels ||
-        _vm.ShowMeshLines != _cachedShowMeshLines);
+        _vm.ShowMeshLines != _cachedShowMeshLines ||
+        _vm.ShowPlainMeshLines != _cachedPlainMeshLines ||
+        _vm.ShowPlainGeometryEdges != _cachedPlainGeometryEdges ||
+        _vm.ShowPlainLighting != _cachedPlainLighting);
 
     protected override void OnOpenGlInit(GlInterface gl)
     {
@@ -206,12 +212,12 @@ public class MeshGlSurface : OpenGlControlBase
         float pad = 0.05f * (zMax - zMin);
         zMin -= pad; zMax += pad;
 
-        // Always draw the filled mesh.  In Wireframe mode the per-vertex
-        // colors are pre-set to white in RebuildGeometry, so the fill is
-        // invisible against the white background — but it still writes to
-        // the depth buffer and occludes back-facing edges.  Skipping the
-        // fill in Wireframe mode (the previous behaviour) made the model
-        // appear see-through, with hidden edges leaking forward.
+        // Always draw the filled mesh.  In unlit Plain (and in Lines)
+        // the per-vertex colours are pre-set to white in RebuildGeometry,
+        // so the fill is invisible against the white background — but it
+        // still writes the depth buffer and occludes back-facing edges.
+        // Skipping the fill there (the original behaviour) made the model
+        // appear see-through with hidden edges leaking forward.
         if (trace) Diag.Log($"  RenderFrame fb={fb} zMin={zMin} zMax={zMax}");
         _renderer.RenderFrame((uint)fb, w, h, zMin, zMax,
             drawFill: true,
@@ -232,6 +238,9 @@ public class MeshGlSurface : OpenGlControlBase
         _cachedContourN = _vm.ContourN;
         _cachedShowLabels = _vm.ShowContourLabels;
         _cachedShowMeshLines = _vm.ShowMeshLines;
+        _cachedPlainMeshLines = _vm.ShowPlainMeshLines;
+        _cachedPlainGeometryEdges = _vm.ShowPlainGeometryEdges;
+        _cachedPlainLighting = _vm.ShowPlainLighting;
 
         var ns = mesh.Nodes;
         float mnX = float.MaxValue, mnY = float.MaxValue, mnZ = float.MaxValue;
@@ -274,7 +283,7 @@ public class MeshGlSurface : OpenGlControlBase
         double[]? fv = null;
         bool isPerElement = false;
         double fmin = 0, fmax = 1;
-        if (dMode != DisplayMode.Wireframe && !string.IsNullOrEmpty(_vm.ActiveField) &&
+        if (dMode != DisplayMode.Plain && !string.IsNullOrEmpty(_vm.ActiveField) &&
             mesh.Fields.TryGetValue(_vm.ActiveField, out var field) && !field.IsVector)
         {
             fv = field.ScalarValues;
@@ -293,8 +302,8 @@ public class MeshGlSurface : OpenGlControlBase
 
         // For per-element fields, contour iso-lines collapse (the field is
         // constant inside each element), so the user's Lines mode degrades
-        // to Plot semantics for face-coloring and edge-drawing.  Wireframe
-        // and Geometry are unchanged.
+        // to Plot semantics for face-coloring and edge-drawing.  Plain
+        // is unchanged.
         DisplayMode effectiveMode = (isPerElement && dMode == DisplayMode.Lines)
             ? DisplayMode.Plot
             : dMode;
@@ -302,7 +311,7 @@ public class MeshGlSurface : OpenGlControlBase
         // Per-vertex world-space normals — area-weighted average of
         // incident face normals (the cross product magnitude IS twice the
         // triangle area, so a plain sum naturally area-weights).  Used by
-        // the Geometry-mode per-frame lighting pass.
+        // the Plain+Lighting per-frame pass.
         _normX = new float[_nVerts];
         _normY = new float[_nVerts];
         _normZ = new float[_nVerts];
@@ -330,16 +339,17 @@ public class MeshGlSurface : OpenGlControlBase
 
         // Per-NODE colour table: used by Bar2/Point1 elements (which always
         // colour by node) and by the smooth-shading path for per-node fields.
-        // In Geometry mode the per-tri-vertex grayscale is computed each
+        // In Plain+Lighting the per-tri-vertex grayscale is computed each
         // FRAME (in ProjectAndUpload) from the camera direction, so the
         // per-node table here is just a neutral mid-grey for bars/points.
         var vr = new byte[_nVerts]; var vg = new byte[_nVerts]; var vb = new byte[_nVerts];
-        bool whiteFaces = effectiveMode == DisplayMode.Wireframe || effectiveMode == DisplayMode.Lines;
-        bool geometryMode = effectiveMode == DisplayMode.Geometry;
+        bool plainMode = effectiveMode == DisplayMode.Plain;
+        bool plainLit  = plainMode && _vm.ShowPlainLighting;
+        bool whiteFaces = (plainMode && !plainLit) || effectiveMode == DisplayMode.Lines;
         for (int i = 0; i < _nVerts; i++)
         {
             if (whiteFaces) { vr[i] = 255; vg[i] = 255; vb[i] = 255; }
-            else if (geometryMode) { vr[i] = 160; vg[i] = 160; vb[i] = 160; }
+            else if (plainLit) { vr[i] = 160; vg[i] = 160; vb[i] = 160; }
             else if (fv != null && !isPerElement && i < fv.Length)
             {
                 double t = (fv[i] - efMin) / efSpan;
@@ -359,12 +369,10 @@ public class MeshGlSurface : OpenGlControlBase
             var face = bfaces[fi];
             offsets[fi] = vi;
             for (int j = 0; j < face.Length; j++) verts[vi++] = face[j];
-            // Wireframe always draws face edges (otherwise nothing is
-            // visible).  Plot draws them only when the user has enabled
-            // "Mesh lines" in the sidebar.  Lines and Geometry never draw
-            // them — Lines uses iso-contour lines instead, Geometry uses
-            // shaded faces.
-            showEdges[fi] = effectiveMode == DisplayMode.Wireframe ||
+            // Plain and Plot both draw mesh lines only when their
+            // respective "Mesh lines" checkbox is on.  Lines uses
+            // iso-contour lines instead and never draws face edges.
+            showEdges[fi] = (plainMode && _vm.ShowPlainMeshLines) ||
                             (effectiveMode == DisplayMode.Plot && _vm.ShowMeshLines);
         }
         offsets[bfaces.Count] = vi;
@@ -417,14 +425,14 @@ public class MeshGlSurface : OpenGlControlBase
             int subdivN = 1;
             double[]? tArr = null;
             // Subdivision only matters for the per-node Turbo gradient
-            // shading.  In Geometry mode the per-tri-vertex colours are
-            // overwritten with Lambert grayscale every frame anyway, so
-            // refining wastes work AND introduces extra nodes whose
-            // entries in _normX/Y/Z don't exist (they're sized to the
-            // pre-subdivision _nVerts) — accessing them in
-            // ProjectAndUpload's per-frame lighting throws out-of-range
+            // shading.  In Plain mode (lit OR unlit) the per-tri-vertex
+            // colours are either flat white or recomputed every frame
+            // from the camera, so subdividing wastes work AND introduces
+            // extra nodes whose entries in _normX/Y/Z don't exist
+            // (they're sized to the pre-subdivision _nVerts) — accessing
+            // them in ProjectAndUpload's per-frame lighting throws OOB
             // and the swallowed exception leaves the screen frozen.
-            if (!useElemColor && !whiteFaces && !geometryMode && fv != null && !isPerElement)
+            if (!useElemColor && !whiteFaces && !plainLit && fv != null && !isPerElement)
             {
                 tArr = new double[n];
                 double tMin = double.MaxValue, tMax = double.MinValue;
@@ -485,15 +493,18 @@ public class MeshGlSurface : OpenGlControlBase
         }
 
         // Feature-edge selection threshold (degrees of dihedral fold):
-        //   Lines mode:    20° — same as the long-standing default, biased
-        //                  toward keeping silhouette + sharper folds.
-        //   Geometry mode: 30° — the user-facing CAD-style view; only the
-        //                  reasonably sharp creases survive, so a smooth
-        //                  organic mesh (Bunny etc.) shows just a clean
-        //                  silhouette while a hard-edged engineering part
-        //                  (Fandisk, Rocker Arm) keeps its crease lines.
+        //   Lines mode: 20° — backdrop for iso-contours; preserves
+        //               silhouette + sharper folds.
+        //   Plain mode: 35° when the user enables "Geometry edges" —
+        //               only reasonably sharp creases survive, so a
+        //               smooth organic mesh (Bunny etc.) shows just a
+        //               clean silhouette while a hard-edged engineering
+        //               part (Fandisk, Rocker Arm) keeps its crease
+        //               lines.  The detector measures the acute angle
+        //               via atan2(|n×n|, |n·n|) so neighbours with
+        //               inverted winding don't masquerade as 180° folds.
         bool emitFeatureEdges = effectiveMode == DisplayMode.Lines ||
-                                effectiveMode == DisplayMode.Geometry;
+                                (plainMode && _vm.ShowPlainGeometryEdges);
         bool emitContourLines = effectiveMode == DisplayMode.Lines;
 
         if (emitFeatureEdges)
@@ -502,14 +513,14 @@ public class MeshGlSurface : OpenGlControlBase
             for (int i = 0; i < _nVerts; i++)
                 dp[i] = new double[] { _posX[i], _posY[i], _posZ[i] };
 
-            double angleDeg = effectiveMode == DisplayMode.Geometry ? 30.0 : 20.0;
+            double angleDeg = plainMode ? 35.0 : 20.0;
             var fed = FeatureEdgeDetector.Extract(bfaces, dp, angleDeg);
             _featEdgePos = new float[fed.Length];
             for (int i = 0; i < fed.Length; i++) _featEdgePos[i] = (float)fed[i];
 
             // Default: clear any prior label state.  We re-populate it below
             // only in Lines mode when both a field is active AND the user
-            // requested labels.  Geometry mode never carries iso-line labels.
+            // requested labels.  Plain mode never carries iso-line labels.
             _vm.ContourLabelsWorld.Clear();
 
             if (emitContourLines && fv != null)
@@ -653,25 +664,28 @@ public class MeshGlSurface : OpenGlControlBase
 
         // Build the per-frame triangle soup.
         //
-        // For Plot / Wireframe / Lines: vertex slots come from the
+        // For Plot / Plain-unlit / Lines: vertex slots come from the
         // pre-baked _triNode + _triR/G/B arrays.
         //
-        // For Geometry: ignore the baked colours and recompute a Lambert
-        // grayscale per node from the camera-forward direction (head-light
-        // model).  Two-sided shading via abs(n · forward) so back faces
-        // aren't pitch black; an ambient term keeps grazing angles
-        // legible.  This is the only path that has to update per frame
-        // with the camera rotation; for a typical mesh that's a few mul-
-        // adds per vertex slot.
+        // For Plain+Lighting: ignore the baked colours and recompute a
+        // half-Lambert grayscale per node from the camera-forward direction
+        // (head-light model).  Two-sided via abs(n · forward) so back
+        // faces aren't pitch black; squaring the wrapped dot gives a
+        // softer terminator than plain Lambert and reads better on a
+        // monochrome surface; an ambient term keeps grazing angles
+        // legible.  Same formula runs in SceneBuilder (PDF) so screen
+        // and PDF agree pixel-for-pixel.
         var triVerts = new GlVertex[_triNode.Length];
-        if (_cachedMode == DisplayMode.Geometry)
+        bool perFrameLighting = _cachedMode == DisplayMode.Plain && _cachedPlainLighting;
+        if (perFrameLighting)
         {
             float lx = (float)cam.Forward.X, ly = (float)cam.Forward.Y, lz = (float)cam.Forward.Z;
             for (int i = 0; i < _triNode.Length; i++)
             {
                 int n = _triNode[i];
                 float dot = Math.Abs(_normX[n] * lx + _normY[n] * ly + _normZ[n] * lz);
-                float gray = 0.25f + 0.75f * dot;
+                float wrap = 0.5f + 0.5f * dot;
+                float gray = 0.18f + 0.82f * wrap * wrap;
                 if (gray > 1f) gray = 1f;
                 byte g = (byte)(gray * 255);
                 triVerts[i] = new GlVertex(_sx[n], _sy[n], _sz[n], g, g, g);
