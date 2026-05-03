@@ -43,10 +43,6 @@
           <CheckBox x:Name="CbContourLabels" Content="Labels" Click="OnContourLabelsChanged"/>
         </StackPanel>
 
-        <!-- Geometry-mode options -->
-        <StackPanel x:Name="PnlGeometryOptions" IsVisible="False" Margin="0,4,0,0">
-          <CheckBox x:Name="CbGeometryContours" Content="Contour lines" Click="OnGeometryContoursChanged"/>
-        </StackPanel>
 
         <!-- Time Step -->
         <StackPanel x:Name="PnlSteps" IsVisible="False" Margin="0,10,0,0">

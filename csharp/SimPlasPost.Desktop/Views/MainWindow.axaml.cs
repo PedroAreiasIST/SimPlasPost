@@ -379,19 +379,13 @@ public partial class MainWindow : Window
         else if (RbGeometry.IsChecked == true) _vm.DisplayMode_ = DisplayMode.Geometry;
 
         // Show only the option panel that applies to the active mode.
-        PnlPlotOptions.IsVisible     = _vm.DisplayMode_ == DisplayMode.Plot;
-        PnlContourN.IsVisible        = _vm.DisplayMode_ == DisplayMode.Lines;
-        PnlGeometryOptions.IsVisible = _vm.DisplayMode_ == DisplayMode.Geometry;
+        PnlPlotOptions.IsVisible = _vm.DisplayMode_ == DisplayMode.Plot;
+        PnlContourN.IsVisible    = _vm.DisplayMode_ == DisplayMode.Lines;
     }
 
     private void OnMeshLinesChanged(object? sender, RoutedEventArgs e)
     {
         if (_vm != null) _vm.ShowMeshLines = CbMeshLines.IsChecked == true;
-    }
-
-    private void OnGeometryContoursChanged(object? sender, RoutedEventArgs e)
-    {
-        if (_vm != null) _vm.ShowGeometryContours = CbGeometryContours.IsChecked == true;
     }
 
     private void OnContourNChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
