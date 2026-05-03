@@ -28,12 +28,24 @@
         <RadioButton x:Name="RbWireframe" Content="Wireframe" GroupName="DMode" Click="OnDisplayModeChanged"/>
         <RadioButton x:Name="RbPlot" Content="Contour Plot" GroupName="DMode" IsChecked="True" Click="OnDisplayModeChanged"/>
         <RadioButton x:Name="RbLines" Content="Contour Lines" GroupName="DMode" Click="OnDisplayModeChanged"/>
+        <RadioButton x:Name="RbGeometry" Content="Geometry" GroupName="DMode" Click="OnDisplayModeChanged"/>
 
+        <!-- Plot-mode options -->
+        <StackPanel x:Name="PnlPlotOptions" IsVisible="True" Margin="0,4,0,0">
+          <CheckBox x:Name="CbMeshLines" Content="Mesh lines" IsChecked="True" Click="OnMeshLinesChanged"/>
+        </StackPanel>
+
+        <!-- Lines-mode options (iso-level slider + labels) -->
         <StackPanel x:Name="PnlContourN" IsVisible="False" Margin="0,4,0,0">
           <TextBlock x:Name="TxtContourN" Classes="hint"/>
           <Slider x:Name="SlContourN" Minimum="3" Maximum="30" Value="10" IsSnapToTickEnabled="True" TickFrequency="1"
                   ValueChanged="OnContourNChanged"/>
           <CheckBox x:Name="CbContourLabels" Content="Labels" Click="OnContourLabelsChanged"/>
+        </StackPanel>
+
+        <!-- Geometry-mode options -->
+        <StackPanel x:Name="PnlGeometryOptions" IsVisible="False" Margin="0,4,0,0">
+          <CheckBox x:Name="CbGeometryContours" Content="Contour lines" Click="OnGeometryContoursChanged"/>
         </StackPanel>
 
         <!-- Time Step -->

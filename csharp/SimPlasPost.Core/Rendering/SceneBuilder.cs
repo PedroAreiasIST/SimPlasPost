@@ -14,7 +14,9 @@ public static class SceneBuilder
         MeshData meshData, string? activeField, bool showDef, double defScale,
         CameraParams camParams, int w, int h, DisplayMode dMode, int contourN,
         double? eMinOverride, double? eMaxOverride,
-        bool showContourLabels = false)
+        bool showContourLabels = false,
+        bool showMeshLines = true,
+        bool showGeometryContours = false)
     {
         if (meshData == null) return null;
 
@@ -92,6 +94,36 @@ public static class SceneBuilder
         var cam = Camera.Build(camParams);
         double orthoHH = camParams.Dist;
 
+        // Per-vertex world-space normals for the Geometry-mode Lambert
+        // grayscale path.  Same area-weighted accumulation as the GL
+        // renderer (sum of incident face cross products, then normalise).
+        bool needNormals = effectiveMode == DisplayMode.Geometry;
+        double[] nx = needNormals ? new double[ns.Length] : Array.Empty<double>();
+        double[] ny = needNormals ? new double[ns.Length] : Array.Empty<double>();
+        double[] nz = needNormals ? new double[ns.Length] : Array.Empty<double>();
+        if (needNormals)
+        {
+            foreach (var face in bfaces)
+            {
+                if (face.Length < 3) continue;
+                int v0 = face[0], v1 = face[1], v2 = face[2];
+                var p0 = dp[v0]; var p1 = dp[v1]; var p2 = dp[v2];
+                double ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
+                double vx = p2[0] - p0[0], vy = p2[1] - p0[1], vz = p2[2] - p0[2];
+                double fnx = uy * vz - uz * vy;
+                double fny = uz * vx - ux * vz;
+                double fnz = ux * vy - uy * vx;
+                foreach (var v in face) { nx[v] += fnx; ny[v] += fny; nz[v] += fnz; }
+            }
+            for (int i = 0; i < ns.Length; i++)
+            {
+                double l = Math.Sqrt(nx[i] * nx[i] + ny[i] * ny[i] + nz[i] * nz[i]);
+                if (l > 1e-12) { nx[i] /= l; ny[i] /= l; nz[i] /= l; }
+            }
+        }
+        // Light direction (head-light) = camera forward in world space.
+        double lx = cam.Forward.X, ly = cam.Forward.Y, lz = cam.Forward.Z;
+
         var exportFaces = new List<ProjectedFace>();
         var wireEdges3D = new List<(double[] a, double[] b)>();
 
@@ -128,6 +160,22 @@ public static class SceneBuilder
             if (effectiveMode == DisplayMode.Wireframe)
             {
                 for (int j = 0; j < face.Length; j++) { rArr[j] = 1; gArr[j] = 1; bArr[j] = 1; }
+            }
+            else if (effectiveMode == DisplayMode.Geometry)
+            {
+                // Lambert grayscale (head-light) — two-sided via abs() so
+                // back faces aren't black, plus a 0.25 ambient term for
+                // grazing legibility.  Identical formulation to the GL
+                // renderer's per-frame Geometry pass so the PDF and the
+                // screen agree pixel-for-pixel.
+                for (int j = 0; j < face.Length; j++)
+                {
+                    int v = face[j];
+                    double dot = Math.Abs(nx[v] * lx + ny[v] * ly + nz[v] * lz);
+                    double gray = 0.25 + 0.75 * dot;
+                    if (gray > 1) gray = 1;
+                    rArr[j] = gray; gArr[j] = gray; bArr[j] = gray;
+                }
             }
             else if (fv != null && isPerElement && elemIdx >= 0 && elemIdx < fv.Length)
             {
@@ -180,7 +228,8 @@ public static class SceneBuilder
                 });
             }
 
-            if (effectiveMode == DisplayMode.Wireframe || effectiveMode == DisplayMode.Plot)
+            if (effectiveMode == DisplayMode.Wireframe ||
+                (effectiveMode == DisplayMode.Plot && showMeshLines))
             {
                 for (int j = 0; j < pts.Length; j++)
                     wireEdges3D.Add((pts[j], pts[(j + 1) % pts.Length]));
@@ -194,7 +243,8 @@ public static class SceneBuilder
         var visibleEdges = new List<ProjectedEdge>();
 
         // Wireframe/plot edges
-        if (effectiveMode == DisplayMode.Wireframe || effectiveMode == DisplayMode.Plot)
+        if (effectiveMode == DisplayMode.Wireframe ||
+                (effectiveMode == DisplayMode.Plot && showMeshLines))
         {
             foreach (var (a, b) in wireEdges3D)
             {
@@ -203,8 +253,12 @@ public static class SceneBuilder
             }
         }
 
-        // Feature edges for contour-lines mode
-        if (effectiveMode == DisplayMode.Lines)
+        // Feature (silhouette) edges, drawn whenever iso-contour lines
+        // are active — i.e. classic Lines mode, or Geometry mode with
+        // the optional contour overlay enabled.
+        bool linesContent = effectiveMode == DisplayMode.Lines ||
+                            (effectiveMode == DisplayMode.Geometry && showGeometryContours);
+        if (linesContent)
         {
             var featPos = FeatureEdgeDetector.Extract(bfaces, dp);
             for (int k = 0; k < featPos.Length; k += 6)
@@ -225,7 +279,7 @@ public static class SceneBuilder
         // same arc-midpoints as the on-screen overlay.
         var contours = new List<ProjectedContour>();
         var labelCandidates = new List<ContourLabelWorld>();
-        if (effectiveMode == DisplayMode.Lines && fv != null && !isPerElement)
+        if (linesContent && fv != null && !isPerElement)
         {
             var rawSegs = ContourGenerator.ComputeSegments(bfaces, dp, fv, efMin, efMax, contourN);
             var polylines = ContourGenerator.SmoothPolylines(rawSegs, 2);

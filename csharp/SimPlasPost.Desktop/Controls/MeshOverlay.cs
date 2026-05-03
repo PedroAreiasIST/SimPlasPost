@@ -82,7 +82,13 @@ public class MeshOverlay : Control
     private void DrawContourLabels(DrawingContext ctx, Rect bounds)
     {
         if (_vm == null) return;
-        if (!_vm.ShowContourLabels || _vm.DisplayMode_ != DisplayMode.Lines) return;
+        if (!_vm.ShowContourLabels) return;
+        // Labels apply wherever iso-contour lines are drawn: Lines mode
+        // unconditionally, or Geometry mode when ShowGeometryContours
+        // is on.
+        bool linesOn = _vm.DisplayMode_ == DisplayMode.Lines ||
+                       (_vm.DisplayMode_ == DisplayMode.Geometry && _vm.ShowGeometryContours);
+        if (!linesOn) return;
         if (_vm.ContourLabelsWorld.Count == 0) return;
         if (string.IsNullOrEmpty(_vm.ActiveField)) return;
 

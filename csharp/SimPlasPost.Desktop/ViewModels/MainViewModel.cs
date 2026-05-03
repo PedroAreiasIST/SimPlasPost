@@ -85,6 +85,26 @@ public class MainViewModel : INotifyPropertyChanged
     public bool ShowContourLabels { get => _showContourLabels; set { if (Set(ref _showContourLabels, value)) InvalidateScene(); } }
 
     /// <summary>
+    /// Whether face edges (the underlying FE mesh lines) are drawn on top
+    /// of the coloured surface in <see cref="DisplayMode.Plot"/>.  Default
+    /// on, matching the previous behaviour; the Plot-options panel in the
+    /// sidebar exposes a checkbox to turn it off for clean publication
+    /// figures where the mesh discretisation isn't the point.
+    /// </summary>
+    private bool _showMeshLines = true;
+    public bool ShowMeshLines { get => _showMeshLines; set { if (Set(ref _showMeshLines, value)) InvalidateScene(); } }
+
+    /// <summary>
+    /// In <see cref="DisplayMode.Geometry"/>: when true, draws iso-contour
+    /// lines (and, if <see cref="ShowContourLabels"/> is also on, their
+    /// labels) on top of the Lambert-shaded grayscale geometry.  Default
+    /// off — Geometry mode is meant primarily as a CAD-style "shaded"
+    /// view that doesn't need field data.
+    /// </summary>
+    private bool _showGeometryContours;
+    public bool ShowGeometryContours { get => _showGeometryContours; set { if (Set(ref _showGeometryContours, value)) InvalidateScene(); } }
+
+    /// <summary>
     /// World-space label candidates produced by the renderer in
     /// Contour-Lines mode when <see cref="ShowContourLabels"/> is on.  The
     /// overlay control consumes this list, projects the entries to screen
@@ -257,7 +277,9 @@ public class MainViewModel : INotifyPropertyChanged
         double? eMax = double.TryParse(UserMax, out var mx) ? mx : null;
         var scene = SceneBuilder.Build(MeshData, ActiveField, ShowDef, DefScale,
             Camera, w, h, DisplayMode_, ContourN, eMin, eMax,
-            showContourLabels: ShowContourLabels);
+            showContourLabels: ShowContourLabels,
+            showMeshLines: ShowMeshLines,
+            showGeometryContours: ShowGeometryContours);
         return scene != null ? PdfExporter.Export(scene) : Array.Empty<byte>();
     }
 

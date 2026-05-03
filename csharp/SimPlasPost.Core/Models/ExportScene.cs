@@ -116,9 +116,19 @@ public class LinePreset
 
 public enum DisplayMode
 {
+    /// <summary>Hidden-edge wireframe — only face edges visible, no fill colour.</summary>
     Wireframe,
+    /// <summary>Smooth or per-element field shading on the surface.</summary>
     Plot,
-    Lines
+    /// <summary>Iso-contour line plot (white faces + coloured iso-lines).</summary>
+    Lines,
+    /// <summary>
+    /// Lambert-shaded grayscale geometry view (engineering "shadows"
+    /// look).  No active field needed; the surface normal vs. the
+    /// camera forward direction drives the brightness, with optional
+    /// iso-contour lines drawn on top when a scalar field is active.
+    /// </summary>
+    Geometry,
 }
 
 public class ExportScene
