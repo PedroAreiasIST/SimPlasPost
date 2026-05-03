@@ -350,16 +350,22 @@ public static class PdfExporter
             // match it.  Width is approximated from average char width so
             // the centre matches the live overlay without metrics access.
             string txtForWidth, txtForPdf;
-            if (d.Kind == DimensionKind.Diameter)
+            switch (d.Kind)
             {
-                txtForWidth = $"O {DimensionLayout.FormatValue(d.Value)}";
-                // \330 is Ø (closest WinAnsi glyph to ⌀).
-                txtForPdf   = $"\\330 {DimensionLayout.FormatValue(d.Value)}";
-            }
-            else
-            {
-                txtForWidth = $"{d.Label} = {DimensionLayout.FormatValue(d.Value)}";
-                txtForPdf   = txtForWidth;
+                case DimensionKind.Diameter:
+                    txtForWidth = $"O {DimensionLayout.FormatValue(d.Value)}";
+                    // \330 is Ø (closest WinAnsi glyph to ⌀).
+                    txtForPdf   = $"\\330 {DimensionLayout.FormatValue(d.Value)}";
+                    break;
+                case DimensionKind.SphericalDiameter:
+                    txtForWidth = $"SO {DimensionLayout.FormatValue(d.Value)}";
+                    // ISO drafting "S Ø" prefix → "S\330 ".
+                    txtForPdf   = $"S\\330 {DimensionLayout.FormatValue(d.Value)}";
+                    break;
+                default:
+                    txtForWidth = $"{d.Label} = {DimensionLayout.FormatValue(d.Value)}";
+                    txtForPdf   = txtForWidth;
+                    break;
             }
             double textW = txtForWidth.Length * avgCharW;
             // Negate the screen-frame angle so the visual rotation matches

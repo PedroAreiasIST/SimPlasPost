@@ -2,16 +2,22 @@ namespace SimPlasPost.Core.Models;
 
 /// <summary>
 /// Kind of geometric dimension recovered from a mesh.  Currently the
-/// algorithm produces axis-aligned bounding-box extents (linear) and 2D
-/// circular hole diameters; angular dimensions are deferred until the
-/// feature-graph pipeline learns to reason about non-orthogonal corners.
+/// algorithm produces axis-aligned bounding-box extents (linear), 2D
+/// circular hole diameters, 3D cylindrical-hole diameters, and spherical
+/// diameters; angular dimensions are deferred until the feature-graph
+/// pipeline learns to reason about non-orthogonal corners.
 /// </summary>
 public enum DimensionKind
 {
     /// <summary>Length between two world-space points along an axis.</summary>
     Linear,
-    /// <summary>Diameter of a fitted circle (2D hole detection).</summary>
+    /// <summary>Diameter of a fitted circle (2D hole or 3D cylinder rim).</summary>
     Diameter,
+    /// <summary>Diameter of a fitted sphere (a sphere has no preferred
+    /// in-plane direction, so the renderer always draws the diameter along
+    /// the camera's right axis — i.e. the projected segment equals the
+    /// world-space diameter for any view).</summary>
+    SphericalDiameter,
 }
 
 /// <summary>
@@ -19,9 +25,12 @@ public enum DimensionKind
 /// [-1,1] frame, ready to be projected by the camera each frame.
 ///
 /// Linear dimensions store the two endpoints in <see cref="P1"/> / <see cref="P2"/>;
-/// diameter dimensions store the circle centre in <see cref="P1"/> and a
-/// point on the rim in <see cref="P2"/>, so the renderer can derive the
-/// projected radius without a separate scaling pass.
+/// circular dimensions (2D hole, 3D cylinder, sphere) store the centre in
+/// <see cref="P1"/>, the world-space radius in <see cref="Radius"/>, and
+/// (for 3D cylinders only) the cylinder axis in <see cref="Axis"/>.  The
+/// renderer chooses an in-plane direction at projection time so the
+/// diameter chord projects to a readable segment regardless of camera
+/// orientation.
 /// </summary>
 public class DimensionWorld
 {
@@ -30,6 +39,12 @@ public class DimensionWorld
     public double Value { get; init; }
     public double[] P1 { get; init; } = new double[3];
     public double[] P2 { get; init; } = new double[3];
+    /// <summary>World-space radius (set for Diameter / SphericalDiameter).</summary>
+    public double Radius { get; init; }
+    /// <summary>Unit cylinder axis in world space (set only for 3D cylinder
+    /// diameters; identically zero for 2D circles and spheres so the
+    /// renderer falls back to <c>cam.Right</c> for the chord direction).</summary>
+    public double[] Axis { get; init; } = new double[3];
 }
 
 /// <summary>

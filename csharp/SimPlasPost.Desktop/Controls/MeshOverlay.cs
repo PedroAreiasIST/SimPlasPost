@@ -180,9 +180,14 @@ public class MeshOverlay : Control
             DrawArrow(ctx, inkBrush, d.Dim1, d.Dim2, atStart: true);
             DrawArrow(ctx, inkBrush, d.Dim1, d.Dim2, atStart: false);
 
-            string txt = d.Kind == DimensionKind.Diameter
-                ? $"⌀ {DimensionLayout.FormatValue(d.Value)}"
-                : $"{d.Label} = {DimensionLayout.FormatValue(d.Value)}";
+            string txt = d.Kind switch
+            {
+                // ⌀ = ISO diameter sign (cylindrical).
+                DimensionKind.Diameter => $"⌀ {DimensionLayout.FormatValue(d.Value)}",
+                // S⌀ = spherical-diameter (the ISO drafting prefix is "S Ø").
+                DimensionKind.SphericalDiameter => $"S⌀ {DimensionLayout.FormatValue(d.Value)}",
+                _ => $"{d.Label} = {DimensionLayout.FormatValue(d.Value)}",
+            };
             var formatted = new FormattedText(txt, System.Globalization.CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight, SciBold, textSize, inkBrush);
 
