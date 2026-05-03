@@ -180,14 +180,22 @@ public class MeshOverlay : Control
             DrawArrow(ctx, inkBrush, d.Dim1, d.Dim2, atStart: true);
             DrawArrow(ctx, inkBrush, d.Dim1, d.Dim2, atStart: false);
 
-            string txt = d.Kind switch
-            {
-                // ⌀ = ISO diameter sign (cylindrical).
-                DimensionKind.Diameter => $"⌀ {DimensionLayout.FormatValue(d.Value)}",
-                // S⌀ = spherical-diameter (the ISO drafting prefix is "S Ø").
-                DimensionKind.SphericalDiameter => $"S⌀ {DimensionLayout.FormatValue(d.Value)}",
-                _ => $"{d.Label} = {DimensionLayout.FormatValue(d.Value)}",
-            };
+            string val = DimensionLayout.FormatValue(d.Value);
+            string txt;
+            if (d.Kind == DimensionKind.SphericalDiameter)
+                // ISO drafting prefix "S Ø" for spherical diameter.
+                txt = $"S⌀ {val}";
+            else if (d.Kind == DimensionKind.Diameter && (d.Label.StartsWith("R") || d.Label.StartsWith("r")))
+                // R / r labels mark arc radii (convex / re-entrant) — the
+                // value stored is already the radius, not a diameter, so
+                // the leading symbol is the label itself, no ⌀ prefix.
+                txt = $"{d.Label} = {val}";
+            else if (d.Kind == DimensionKind.Diameter)
+                // d / d1 etc. — full diameter, ISO ⌀ prefix.
+                txt = $"⌀ {val}";
+            else
+                // Linear (L/W/H/t/cx/cy/cz).
+                txt = $"{d.Label} = {val}";
             var formatted = new FormattedText(txt, System.Globalization.CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight, SciBold, textSize, inkBrush);
 
