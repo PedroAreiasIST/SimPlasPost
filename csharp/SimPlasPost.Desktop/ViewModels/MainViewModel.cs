@@ -96,18 +96,30 @@ public class MainViewModel : INotifyPropertyChanged
 
     // ─── Plain-mode toggles ───
     // Plain replaces the old Wireframe + Geometry modes with one
-    // structural-view surface and three orthogonal switches.  Defaults
-    // emulate the old Geometry mode (lit faces + crease lines) since
-    // that's the most informative view; the user can flip toggles to
-    // get back the wireframe-style "every edge, no lighting" rendering.
+    // structural-view surface and two user-facing switches.  Lighting
+    // is derived: it's on iff the user has hidden mesh lines, i.e. the
+    // two settings are opposites of each other.  Together the defaults
+    // (mesh lines off → lighting on, geometry edges on) emulate the
+    // old Geometry view; turning mesh lines on flips lighting off and
+    // recovers the old Wireframe view.
     private bool _showPlainMeshLines;
-    public bool ShowPlainMeshLines { get => _showPlainMeshLines; set { if (Set(ref _showPlainMeshLines, value)) InvalidateScene(); } }
+    public bool ShowPlainMeshLines
+    {
+        get => _showPlainMeshLines;
+        set
+        {
+            if (Set(ref _showPlainMeshLines, value))
+            {
+                OnPropertyChanged(nameof(ShowPlainLighting));
+                InvalidateScene();
+            }
+        }
+    }
 
     private bool _showPlainGeometryEdges = true;
     public bool ShowPlainGeometryEdges { get => _showPlainGeometryEdges; set { if (Set(ref _showPlainGeometryEdges, value)) InvalidateScene(); } }
 
-    private bool _showPlainLighting = true;
-    public bool ShowPlainLighting { get => _showPlainLighting; set { if (Set(ref _showPlainLighting, value)) InvalidateScene(); } }
+    public bool ShowPlainLighting => !ShowPlainMeshLines;
 
     /// <summary>
     /// World-space label candidates produced by the renderer in
