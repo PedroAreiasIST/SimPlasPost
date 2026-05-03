@@ -1614,9 +1614,12 @@ export default function FEPostprocessor() {
     dimsCacheRef.current = meshData ? buildDimensions(meshData) : null;
   },[meshData]);
 
-  // Toggle the live overlay without rebuilding the Three.js scene.
+  // Toggle the live overlay without rebuilding the Three.js scene. Geometry edges
+  // (the dimension overlay) follow the same rule as the checkbox: active only
+  // while mesh lines are off.
   useEffect(()=>{
-    dimsActiveRef.current = showDimensions && displayMode==="plain";
+    const meshOn = displayMode==="wireframe"||displayMode==="plot";
+    dimsActiveRef.current = showDimensions && !meshOn;
     if (!dimsActiveRef.current && dimsOverlayRef.current) dimsOverlayRef.current.innerHTML = "";
   },[showDimensions, displayMode]);
 
@@ -1776,7 +1779,7 @@ export default function FEPostprocessor() {
     const EW = 800, EH = 600;
     const em = userMin!==""&&!isNaN(parseFloat(userMin)) ? parseFloat(userMin) : null;
     const ex = userMax!==""&&!isNaN(parseFloat(userMax)) ? parseFloat(userMax) : null;
-    const dimsActive = showDimensions && displayMode==="plain";
+    const dimsActive = showDimensions && !(displayMode==="wireframe"||displayMode==="plot");
     const scene = computeExportScene(meshData, activeField, showDef, defScale, camRef.current, EW, EH, displayMode, contourN, em, ex, dimsActive);
     if (!scene) return;
     if (fmt === "svg") {
@@ -1791,6 +1794,13 @@ export default function FEPostprocessor() {
   const sFields=meshData?Object.keys(meshData.fields||{}).filter(f=>meshData.fields[f].type==="scalar"):[];
   const effMin = userMin!==""&&!isNaN(parseFloat(userMin)) ? parseFloat(userMin) : fRange[0];
   const effMax = userMax!==""&&!isNaN(parseFloat(userMax)) ? parseFloat(userMax) : fRange[1];
+  // Mesh lines are drawn in modes that show all per-element edges. Geometry-edge
+  // overlays (e.g. dimensions) auto-deactivate while mesh lines are on.
+  const meshLinesOn = displayMode==="wireframe"||displayMode==="plot";
+  // Auto-clear the dimensions toggle if the user switches to a mesh-lines-on mode
+  // so the checkbox state matches the rule.
+  useEffect(()=>{ if (meshLinesOn && showDimensions) setShowDimensions(false); },
+    [meshLinesOn, showDimensions]);
 
   const cbG=useMemo(()=>{const s=[];for(let i=0;i<=20;i++){const t=i/20;const[r,g,b]=sampleTurbo(t);s.push(`rgb(${r*255|0},${g*255|0},${b*255|0}) ${t*100}%`);}return`linear-gradient(to top,${s.join(",")})`;}, []);
 
@@ -1855,12 +1865,14 @@ export default function FEPostprocessor() {
                 style={{width:"100%",accentColor:"#4a9eff"}}/>
             </div>
           )}
-          {displayMode==="plain"&&(
-            <label style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0 2px 0",cursor:"pointer",marginTop:2}}>
-              <input type="checkbox" checked={showDimensions} onChange={e=>setShowDimensions(e.target.checked)}/>
-              <span style={{color:"#aac"}}>Show dimensions</span>
-            </label>
-          )}
+          {/* Geometry edges (dimensions) only make sense when mesh lines are off; the checkbox
+              is always shown so the rule is visible, but disabled (and forced off) when mesh
+              lines are active. */}
+          <label style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0 2px 0",cursor:meshLinesOn?"not-allowed":"pointer",marginTop:2,opacity:meshLinesOn?0.45:1}}>
+            <input type="checkbox" checked={showDimensions && !meshLinesOn} disabled={meshLinesOn}
+              onChange={e=>setShowDimensions(e.target.checked)}/>
+            <span style={{color:meshLinesOn?"#667":"#aac"}}>Show dimensions (geometry edges)</span>
+          </label>
 
           <div style={{color:"#4a9eff",fontSize:11,fontWeight:600,borderBottom:"1px solid #2a2e38",paddingBottom:3,marginBottom:5,marginTop:12}}>Field</div>
           <select style={{padding:"4px 8px",fontSize:11,border:"1px solid #333844",borderRadius:4,background:"#22252e",color:"#c8cdd5",width:"100%"}} value={activeField} onChange={e=>{setActiveField(e.target.value);setUserMin("");setUserMax("");}}>
