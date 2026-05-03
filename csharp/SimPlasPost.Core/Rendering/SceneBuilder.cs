@@ -19,6 +19,7 @@ public static class SceneBuilder
         bool showPlainMeshLines = false,
         bool showPlainGeometryEdges = true,
         bool showPlainLighting = true,
+        bool showLinesLighting = true,
         bool showPlainDimensions = false,
         IList<DimensionWorld>? dimensionsWorld = null)
     {
@@ -98,11 +99,16 @@ public static class SceneBuilder
         var cam = Camera.Build(camParams);
         double orthoHH = camParams.Dist;
 
-        // Per-vertex world-space normals for the Plain-mode Lambert
-        // grayscale path.  Same area-weighted accumulation as the GL
-        // renderer (sum of incident face cross products, then normalise).
+        // Per-vertex world-space normals for the Lambert grayscale path.
+        // Same area-weighted accumulation as the GL renderer (sum of
+        // incident face cross products, then normalise).  The path is
+        // shared between Plain mode (lit faces are the only ones drawn)
+        // and Lines mode with lighting on (lit faces sit underneath the
+        // coloured iso-contour lines so the 3D shape stays readable).
         bool plainLit = effectiveMode == DisplayMode.Plain && showPlainLighting;
-        bool needNormals = plainLit;
+        bool linesLit = effectiveMode == DisplayMode.Lines && showLinesLighting;
+        bool litFaces = plainLit || linesLit;
+        bool needNormals = litFaces;
         double[] nx = needNormals ? new double[ns.Length] : Array.Empty<double>();
         double[] ny = needNormals ? new double[ns.Length] : Array.Empty<double>();
         double[] nz = needNormals ? new double[ns.Length] : Array.Empty<double>();
@@ -169,14 +175,16 @@ public static class SceneBuilder
                 // is invisible but still occludes back-edges.
                 for (int j = 0; j < face.Length; j++) { rArr[j] = 1; gArr[j] = 1; bArr[j] = 1; }
             }
-            else if (plainLit)
+            else if (litFaces)
             {
                 // Half-Lambert grayscale (head-light), two-sided via abs()
                 // so back faces aren't black.  Half-Lambert (square the
                 // wrapped dot) gives a softer terminator than plain
                 // Lambert, which reads better on monochrome surfaces.
                 // Same formulation runs in the GL per-frame pass so the
-                // PDF and the screen agree pixel-for-pixel.
+                // PDF and the screen agree pixel-for-pixel.  Used for
+                // both Plain (lit) and Lines (lit) modes — for Lines the
+                // grayscale faces sit under the coloured iso-contours.
                 for (int j = 0; j < face.Length; j++)
                 {
                     int v = face[j];
@@ -365,9 +373,12 @@ public static class SceneBuilder
             ? ContourLabelPlacer.Place(labelCandidates, cam, orthoHH, w, h, fontSize: 11)
             : new List<PlacedContourLabel>();
 
-        // Lines mode: faces should be white so the iso-lines and silhouette
-        // edges carry all the colour information.  Reset every vertex slot.
-        if (effectiveMode == DisplayMode.Lines)
+        // Lines mode: when lighting is OFF, faces should be white so the
+        // iso-lines and silhouette edges carry all the colour
+        // information.  When lighting is ON, the lit-faces branch above
+        // has already painted the faces with half-Lambert grayscale,
+        // which we keep so the user sees 3D shape under the iso-lines.
+        if (effectiveMode == DisplayMode.Lines && !linesLit)
         {
             foreach (var f in exportFaces)
             {

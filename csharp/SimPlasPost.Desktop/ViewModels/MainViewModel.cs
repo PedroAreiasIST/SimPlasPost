@@ -186,6 +186,20 @@ public class MainViewModel : INotifyPropertyChanged
     public bool ShowPlainLighting => !ShowPlainMeshLines || ShowPlainLightingPref;
 
     /// <summary>
+    /// Whether to apply the same head-light Lambert grayscale shading
+    /// (used in Plain mode) to the surface in Contour-Lines mode.  With
+    /// lighting on, the otherwise-white faces gain the subtle depth cue
+    /// that makes a 3D shape readable, while the iso-contour lines and
+    /// feature edges keep their colour information on top.
+    /// </summary>
+    private bool _showLinesLighting = true;
+    public bool ShowLinesLighting
+    {
+        get => _showLinesLighting;
+        set { if (Set(ref _showLinesLighting, value)) InvalidateScene(); }
+    }
+
+    /// <summary>
     /// World-space label candidates produced by the renderer in
     /// Contour-Lines mode when <see cref="ShowContourLabels"/> is on.  The
     /// overlay control consumes this list, projects the entries to screen
@@ -297,6 +311,7 @@ public class MainViewModel : INotifyPropertyChanged
             showPlainMeshLines: ShowPlainMeshLines,
             showPlainGeometryEdges: ShowPlainGeometryEdges,
             showPlainLighting: ShowPlainLighting,
+            showLinesLighting: ShowLinesLighting,
             showPlainDimensions: ShowPlainDimensions,
             dimensionsWorld: DimensionsWorld);
 
@@ -386,6 +401,7 @@ public class MainViewModel : INotifyPropertyChanged
             showPlainMeshLines: ShowPlainMeshLines,
             showPlainGeometryEdges: ShowPlainGeometryEdges,
             showPlainLighting: ShowPlainLighting,
+            showLinesLighting: ShowLinesLighting,
             showPlainDimensions: ShowPlainDimensions,
             dimensionsWorld: DimensionsWorld);
         return scene != null ? PdfExporter.Export(scene) : Array.Empty<byte>();
