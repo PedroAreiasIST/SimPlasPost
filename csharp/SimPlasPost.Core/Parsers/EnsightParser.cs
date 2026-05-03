@@ -40,9 +40,21 @@ public static class EnsightParser
 
             if (section == "g" && Regex.IsMatch(line, @"^model:", RegexOptions.IgnoreCase))
             {
-                var parts = Regex.Replace(line, @"^model:\s*", "", RegexOptions.IgnoreCase).Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length == 0) continue;
-                result.GeoFile = parts.Length > 1 && Regex.IsMatch(parts[0], @"^\d+$") ? parts[1] : parts[0];
+                // The full Ensight syntax is `model: [ts] [fs] file [opts...]`
+                // where `ts` and `fs` are optional integer time-set and
+                // file-set IDs.  Skip every leading numeric token so the
+                // first non-numeric token is taken as the geometry filename
+                // (matching the same `\d+\s+){0,2}` allowance the variable
+                // parser below already uses).  Trailing options like
+                // `change_coords_only` are ignored — we just take the first
+                // non-numeric token.
+                var parts = Regex.Replace(line, @"^model:\s*", "", RegexOptions.IgnoreCase)
+                    .Trim()
+                    .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                int startIdx = 0;
+                while (startIdx < parts.Length && Regex.IsMatch(parts[startIdx], @"^\d+$"))
+                    startIdx++;
+                if (startIdx < parts.Length) result.GeoFile = parts[startIdx];
             }
 
             if (section == "v")
