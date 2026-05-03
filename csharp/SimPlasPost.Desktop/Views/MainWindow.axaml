@@ -114,12 +114,27 @@
           <Button Content="↻" Classes="rot90" Click="OnRollView" Tag="rollCW"
                   ToolTip.Tip="Rotate the view 90° clockwise around the current view axis."/>
         </UniformGrid>
-        <TextBlock Text="Isometric" Classes="hint" Margin="0,0,0,2"/>
+        <TextBlock Text="Isometric (top)" Classes="hint" Margin="0,0,0,2"/>
         <UniformGrid Columns="4" Margin="0,0,0,4">
-          <Button Content="FR" Click="OnPresetView" Tag="iFR"/>
-          <Button Content="FL" Click="OnPresetView" Tag="iFL"/>
-          <Button Content="BR" Click="OnPresetView" Tag="iBR"/>
-          <Button Content="BL" Click="OnPresetView" Tag="iBL"/>
+          <Button Content="FR" Click="OnPresetView" Tag="iFR"
+                  ToolTip.Tip="Front-Right isometric (top, looking down)."/>
+          <Button Content="FL" Click="OnPresetView" Tag="iFL"
+                  ToolTip.Tip="Front-Left isometric (top, looking down)."/>
+          <Button Content="BR" Click="OnPresetView" Tag="iBR"
+                  ToolTip.Tip="Back-Right isometric (top, looking down)."/>
+          <Button Content="BL" Click="OnPresetView" Tag="iBL"
+                  ToolTip.Tip="Back-Left isometric (top, looking down)."/>
+        </UniformGrid>
+        <TextBlock Text="Isometric (bottom)" Classes="hint" Margin="0,0,0,2"/>
+        <UniformGrid Columns="4" Margin="0,0,0,4">
+          <Button Content="FR" Click="OnPresetView" Tag="iFRb"
+                  ToolTip.Tip="Front-Right isometric (bottom, looking up)."/>
+          <Button Content="FL" Click="OnPresetView" Tag="iFLb"
+                  ToolTip.Tip="Front-Left isometric (bottom, looking up)."/>
+          <Button Content="BR" Click="OnPresetView" Tag="iBRb"
+                  ToolTip.Tip="Back-Right isometric (bottom, looking up)."/>
+          <Button Content="BL" Click="OnPresetView" Tag="iBLb"
+                  ToolTip.Tip="Back-Left isometric (bottom, looking up)."/>
         </UniformGrid>
 
         <!-- Saved Views -->

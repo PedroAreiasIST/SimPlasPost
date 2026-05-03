@@ -520,10 +520,17 @@ public partial class MainWindow : Window
             ["nY"] = CameraParams.FromAngles(0, Math.PI - 0.001, 2.5),
             ["pZ"] = CameraParams.FromAngles(0, Math.PI / 2, 2.5),
             ["nZ"] = CameraParams.FromAngles(Math.PI, Math.PI / 2, 2.5),
-            ["iFR"] = CameraParams.FromAngles(0.62, 0.76, 3.2),
-            ["iFL"] = CameraParams.FromAngles(-0.62, 0.76, 3.2),
-            ["iBR"] = CameraParams.FromAngles(Math.PI - 0.62, 0.76, 3.2),
-            ["iBL"] = CameraParams.FromAngles(Math.PI + 0.62, 0.76, 3.2),
+            ["iFR"]  = CameraParams.FromAngles(0.62,             0.76,            3.2),
+            ["iFL"]  = CameraParams.FromAngles(-0.62,            0.76,            3.2),
+            ["iBR"]  = CameraParams.FromAngles(Math.PI - 0.62,   0.76,            3.2),
+            ["iBL"]  = CameraParams.FromAngles(Math.PI + 0.62,   0.76,            3.2),
+            // The 4 bottom-corner isometrics complete the cube's 8 vertex
+            // viewpoints (mirror image of the top quartet through the
+            // equator: phi → π − phi).
+            ["iFRb"] = CameraParams.FromAngles(0.62,             Math.PI - 0.76,  3.2),
+            ["iFLb"] = CameraParams.FromAngles(-0.62,            Math.PI - 0.76,  3.2),
+            ["iBRb"] = CameraParams.FromAngles(Math.PI - 0.62,   Math.PI - 0.76,  3.2),
+            ["iBLb"] = CameraParams.FromAngles(Math.PI + 0.62,   Math.PI - 0.76,  3.2),
         };
         if (presets.TryGetValue(tag, out var p)) _vm.SetPresetView(p);
     }
