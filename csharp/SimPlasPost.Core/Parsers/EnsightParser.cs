@@ -25,6 +25,22 @@ public static class EnsightParser
 {
     private const int MaxNodesPerPart = 50_000_000; // safety limit
 
+    /// <summary>
+    /// Split a possibly Fortran-formatted numeric line into whitespace
+    /// tokens.  Some Ensight writers emit fixed-width columns where a
+    /// negative number's minus sign is jammed against the previous
+    /// number (e.g. <c>"0.34901E-01-0.33628E-03"</c>).  Inserting a
+    /// space before any sign that immediately follows a digit splits
+    /// adjacent numbers cleanly while leaving scientific notation
+    /// <c>E-01</c> / <c>E+04</c> alone — the char before the sign there
+    /// is the letter <c>E</c>, not a digit, so the regex doesn't fire.
+    /// </summary>
+    private static string[] TokenizeFortranLine(string line)
+    {
+        string fixed_ = Regex.Replace(line, @"(\d)([+-])", "$1 $2");
+        return fixed_.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+    }
+
     public static EnsightCaseData ParseCase(string text)
     {
         var result = new EnsightCaseData();
@@ -154,14 +170,14 @@ public static class EnsightParser
                 // exactly like Gold's per-part path).  For the per-line
                 // variant the existing auto-detect on token count
                 // (`parts.Length >= 4`) keeps handling inline IDs.
-                var firstTokens = Peek().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                var firstTokens = TokenizeFortranLine(Peek());
                 bool perLineXYZ = firstTokens.Length >= 3;
 
                 if (perLineXYZ)
                 {
                     for (int k = 0; k < npts; k++)
                     {
-                        var parts = Next().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                        var parts = TokenizeFortranLine(Next());
                         int off = (parts.Length >= 4) ? 1 : 0; // tolerate inline node id even when 'off'
                         double rx = parts.Length > off     && double.TryParse(parts[off],     out var vx) ? vx : 0;
                         double ry = parts.Length > off + 1 && double.TryParse(parts[off + 1], out var vy) ? vy : 0;
@@ -223,14 +239,14 @@ public static class EnsightParser
                     // (IDs precede the X column on their own lines).  For
                     // the per-line branch the inline-id auto-detect on
                     // each line covers both `nidGiven` and `nid off`.
-                    var firstTokens = Peek().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                    var firstTokens = TokenizeFortranLine(Peek());
                     bool perLineXYZ = firstTokens.Length >= 3;
 
                     if (perLineXYZ)
                     {
                         for (int k = 0; k < npts; k++)
                         {
-                            var parts = Next().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                            var parts = TokenizeFortranLine(Next());
                             int off = (parts.Length >= 4) ? 1 : 0;
                             double rx = parts.Length > off     && double.TryParse(parts[off],     out var vx) ? vx : 0;
                             double ry = parts.Length > off + 1 && double.TryParse(parts[off + 1], out var vy) ? vy : 0;
@@ -290,7 +306,7 @@ public static class EnsightParser
 
                 for (int k = 0; k < ne; k++)
                 {
-                    var parts = Next().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                    var parts = TokenizeFortranLine(Next());
                     // Inline element id present whenever the connectivity line
                     // has one more token than the element's node count.  This
                     // covers Ensight 6 unconditionally and tolerates Gold
