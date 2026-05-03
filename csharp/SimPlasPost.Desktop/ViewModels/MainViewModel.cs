@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using SimPlasPost.Core.Colormap;
 using SimPlasPost.Core.Demos;
 using SimPlasPost.Core.Export;
+using SimPlasPost.Core.Geometry;  // DimensionExtractor lives here
 using SimPlasPost.Core.Models;
 using SimPlasPost.Core.Parsers;
 using SimPlasPost.Core.Rendering;
@@ -113,12 +114,15 @@ public class MainViewModel : INotifyPropertyChanged
         {
             if (Set(ref _showPlainMeshLines, value))
             {
-                // Geometry edges and mesh lines are mutually exclusive in
-                // Plain mode: mesh lines win, so turning them on forces the
-                // geometry-edge overlay off. The View reflects this by
-                // disabling the corresponding checkbox.
-                if (value && _showPlainGeometryEdges)
-                    ShowPlainGeometryEdges = false;
+                // Geometry edges, dimensions and mesh lines are mutually
+                // exclusive in Plain mode: mesh lines win, so turning them
+                // on forces both overlays off. The View reflects this by
+                // disabling the corresponding checkboxes.
+                if (value)
+                {
+                    if (_showPlainGeometryEdges) ShowPlainGeometryEdges = false;
+                    if (_showPlainDimensions) ShowPlainDimensions = false;
+                }
                 OnPropertyChanged(nameof(ShowPlainLighting));
                 InvalidateScene();
             }
@@ -138,6 +142,32 @@ public class MainViewModel : INotifyPropertyChanged
             if (Set(ref _showPlainGeometryEdges, effective)) InvalidateScene();
         }
     }
+
+    /// <summary>
+    /// Optional automatic dimensioning overlay (bounding-box extents,
+    /// detected hole diameters) — described in
+    /// <c>automatic_mesh_dimensioning_algorithm.pdf</c>.  Available only in
+    /// Plain mode with mesh lines off; the setter rejects an enable while
+    /// mesh lines are visible so the renderer never sees both flags on.
+    /// </summary>
+    private bool _showPlainDimensions = false;
+    public bool ShowPlainDimensions
+    {
+        get => _showPlainDimensions;
+        set
+        {
+            bool effective = value && !_showPlainMeshLines;
+            if (Set(ref _showPlainDimensions, effective)) InvalidateScene();
+        }
+    }
+
+    /// <summary>
+    /// World-space dimension annotations cached for the current mesh, in
+    /// the renderer's normalised [-1,1] frame.  Built once per
+    /// <see cref="MeshLoaded"/> and projected per frame by the overlay so
+    /// labels follow the camera without rebuilding the whole scene.
+    /// </summary>
+    public List<DimensionWorld> DimensionsWorld { get; private set; } = new();
 
     private bool _showPlainLightingPref = true;
     public bool ShowPlainLightingPref
@@ -241,6 +271,11 @@ public class MainViewModel : INotifyPropertyChanged
         else
             Camera.CopyFrom(CameraParams.For3D());
 
+        // Recompute the deterministic dimension set for the new mesh.
+        // The result is independent of camera / mesh-display state, so it
+        // only needs to change when the mesh itself changes.
+        DimensionsWorld = DimensionExtractor.Build(d);
+
         Info = $"{d.Name} \u2014 {d.Nodes.Length} nodes, {d.Elements.Count} elems";
         InvalidateScene();
         MeshLoaded?.Invoke();
@@ -261,7 +296,9 @@ public class MainViewModel : INotifyPropertyChanged
             showMeshLines: ShowMeshLines,
             showPlainMeshLines: ShowPlainMeshLines,
             showPlainGeometryEdges: ShowPlainGeometryEdges,
-            showPlainLighting: ShowPlainLighting);
+            showPlainLighting: ShowPlainLighting,
+            showPlainDimensions: ShowPlainDimensions,
+            dimensionsWorld: DimensionsWorld);
 
         if (scene != null)
         {
@@ -348,7 +385,9 @@ public class MainViewModel : INotifyPropertyChanged
             showMeshLines: ShowMeshLines,
             showPlainMeshLines: ShowPlainMeshLines,
             showPlainGeometryEdges: ShowPlainGeometryEdges,
-            showPlainLighting: ShowPlainLighting);
+            showPlainLighting: ShowPlainLighting,
+            showPlainDimensions: ShowPlainDimensions,
+            dimensionsWorld: DimensionsWorld);
         return scene != null ? PdfExporter.Export(scene) : Array.Empty<byte>();
     }
 
