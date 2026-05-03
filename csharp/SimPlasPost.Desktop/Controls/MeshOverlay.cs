@@ -157,9 +157,11 @@ public class MeshOverlay : Control
         if (laid.Count == 0) return;
 
         var inkBrush = new SolidColorBrush(Color.FromRgb(34, 34, 34));
-        var inkPenThin  = new Pen(inkBrush, 0.7);
-        var inkPenThick = new Pen(inkBrush, 1.0);
-        const double textSize = 12;
+        // Heavier strokes than the contour overlay so the dimension layer
+        // stands out as drafting annotations rather than data marks.
+        var inkPenThin  = new Pen(inkBrush, 1.0);
+        var inkPenThick = new Pen(inkBrush, 1.6);
+        const double textSize = 17;
 
         foreach (var d in laid)
         {
@@ -199,7 +201,7 @@ public class MeshOverlay : Control
         double L = Math.Sqrt(dx * dx + dy * dy);
         if (L < 1e-6) return;
         double ux = dx / L, uy = dy / L;
-        const double hL = 7, hW = 2.6;
+        const double hL = 11, hW = 4.0;
         double tipX, tipY, sign;
         if (atStart) { tipX = a[0]; tipY = a[1]; sign = +1; }
         else         { tipX = b[0]; tipY = b[1]; sign = -1; }
