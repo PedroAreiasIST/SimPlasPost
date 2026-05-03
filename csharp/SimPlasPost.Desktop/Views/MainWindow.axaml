@@ -29,11 +29,11 @@
         <RadioButton x:Name="RbPlot" Content="Contour Plot" GroupName="DMode" IsChecked="True" Click="OnDisplayModeChanged"/>
         <RadioButton x:Name="RbLines" Content="Contour Lines" GroupName="DMode" Click="OnDisplayModeChanged"/>
 
-        <!-- Plain-mode options: three orthogonal toggles -->
+        <!-- Plain-mode options.  Lighting is derived (on iff mesh lines
+             are off), so the user only sees two checkboxes here. -->
         <StackPanel x:Name="PnlPlainOptions" IsVisible="False" Margin="0,4,0,0">
           <CheckBox x:Name="CbPlainMeshLines"     Content="Mesh lines"     Click="OnPlainMeshLinesChanged"/>
           <CheckBox x:Name="CbPlainGeometryEdges" Content="Geometry edges" IsChecked="True" Click="OnPlainGeometryEdgesChanged"/>
-          <CheckBox x:Name="CbPlainLighting"      Content="Lighting"       IsChecked="True" Click="OnPlainLightingChanged"/>
         </StackPanel>
 
         <!-- Plot-mode options -->

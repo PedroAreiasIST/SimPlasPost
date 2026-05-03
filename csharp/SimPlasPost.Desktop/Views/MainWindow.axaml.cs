@@ -398,11 +398,6 @@ public partial class MainWindow : Window
         if (_vm != null) _vm.ShowPlainGeometryEdges = CbPlainGeometryEdges.IsChecked == true;
     }
 
-    private void OnPlainLightingChanged(object? sender, RoutedEventArgs e)
-    {
-        if (_vm != null) _vm.ShowPlainLighting = CbPlainLighting.IsChecked == true;
-    }
-
     private void OnContourNChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
         if (_vm != null)
