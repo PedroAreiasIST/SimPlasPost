@@ -78,8 +78,18 @@ public static class SceneBuilder
             isPerElement = field.IsPerElement;
             if (fv != null && fv.Length > 0)
             {
+                // Skip NaN / ±Inf so a single uninitialised node (some FE
+                // solvers seed with `IEEE NaN` or `1e+30`) doesn't push
+                // the colour bar to a useless infinite range and squash
+                // every real value into the dark-blue end of Turbo.
                 fmin = double.MaxValue; fmax = double.MinValue;
-                foreach (double v in fv) { fmin = Math.Min(fmin, v); fmax = Math.Max(fmax, v); }
+                foreach (double v in fv)
+                {
+                    if (double.IsNaN(v) || double.IsInfinity(v)) continue;
+                    if (v < fmin) fmin = v;
+                    if (v > fmax) fmax = v;
+                }
+                if (fmin == double.MaxValue) { fmin = 0; fmax = 1; } // all-NaN field
                 if (Math.Abs(fmax - fmin) < 1e-15) fmax = fmin + 1;
             }
         }

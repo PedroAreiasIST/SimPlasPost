@@ -354,45 +354,6 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public void LoadJsonMesh(string json)
-    {
-        try
-        {
-            var d = System.Text.Json.JsonSerializer.Deserialize<JsonMeshDto>(json);
-            if (d == null || d.nodes == null || d.elements == null) throw new Exception("Missing nodes or elements");
-
-            var mesh = new MeshData
-            {
-                Name = "JSON mesh",
-                Nodes = d.nodes.Select(n => new[] { n.Length > 0 ? n[0] : 0, n.Length > 1 ? n[1] : 0, n.Length > 2 ? n[2] : 0 }).ToArray(),
-                Dim = d.dim ?? (d.nodes.All(n => n.Length < 3 || Math.Abs(n[2]) < 1e-12) ? 2 : 3),
-            };
-
-            foreach (var el in d.elements)
-            {
-                if (el.conn == null) continue;
-                if (!Enum.TryParse<ElementType>(el.type, true, out var etype)) continue;
-                mesh.Elements.Add(new Element { Type = etype, Conn = el.conn });
-            }
-
-            if (d.fields != null)
-            {
-                foreach (var (name, field) in d.fields)
-                {
-                    if (field.type == "scalar" && field.values != null)
-                        mesh.Fields[name] = new FieldData { Name = name, IsVector = false, ScalarValues = field.values.Select(v => (double)v).ToArray() };
-                }
-            }
-
-            LoadMesh(mesh);
-            Log = "JSON loaded";
-        }
-        catch (Exception ex)
-        {
-            Log = $"Error: {ex.Message}";
-        }
-    }
-
     // ─── Export ───
     /// <summary>
     /// Export the current scene to a PDF page sized to <paramref name="w"/>×
@@ -552,22 +513,3 @@ public class MainViewModel : INotifyPropertyChanged
 }
 
 // ─── JSON mesh DTOs (internal to avoid polluting public API) ───
-internal class JsonMeshDto
-{
-    public double[][]? nodes { get; set; }
-    public JsonElementDto[]? elements { get; set; }
-    public int? dim { get; set; }
-    public Dictionary<string, JsonFieldDto>? fields { get; set; }
-}
-
-internal class JsonElementDto
-{
-    public string? type { get; set; }
-    public int[]? conn { get; set; }
-}
-
-internal class JsonFieldDto
-{
-    public string? type { get; set; }
-    public double[]? values { get; set; }
-}

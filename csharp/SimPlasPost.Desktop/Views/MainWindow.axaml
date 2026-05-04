@@ -20,7 +20,6 @@
         <!-- Load Data -->
         <TextBlock Text="Load Data" Classes="section" Margin="0,0,0,4"/>
         <Button x:Name="BtnLoadEnsight" Content="Ensight (.case + files)" Click="OnLoadEnsight" HorizontalAlignment="Stretch"/>
-        <Button x:Name="BtnLoadJson" Content="JSON mesh" Click="OnLoadJson" HorizontalAlignment="Stretch"/>
         <TextBlock x:Name="TxtLog" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
 
         <!-- Display Mode -->
