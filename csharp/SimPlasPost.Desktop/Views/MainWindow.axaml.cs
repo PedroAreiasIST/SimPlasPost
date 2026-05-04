@@ -346,31 +346,6 @@ public partial class MainWindow : Window
         return (contents, note);
     }
 
-    private async void OnLoadJson(object? sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = "Open JSON Mesh",
-                AllowMultiple = false,
-                FileTypeFilter = new[]
-                {
-                    new FilePickerFileType("JSON") { Patterns = new[] { "*.json" } },
-                },
-            });
-
-            if (files.Count == 0) return;
-            await using var stream = await files[0].OpenReadAsync();
-            using var reader = new StreamReader(stream);
-            _vm.LoadJsonMesh(await reader.ReadToEndAsync());
-        }
-        catch (Exception ex)
-        {
-            _vm.Log = $"Error reading file: {ex.Message}";
-        }
-    }
-
     // ─── Display mode ───
     private void OnDisplayModeChanged(object? sender, RoutedEventArgs e)
     {

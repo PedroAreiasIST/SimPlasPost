@@ -335,43 +335,32 @@ public static class EnsightParser
     {
         var lines = text.Split('\n');
 
-        int partIdx = -1;
+        // Locate optional Gold-style 'part / N / coordinates' header.  The
+        // search starts at line 1 to skip the per-variable description.
+        int startLine = 1;
         for (int k = 1; k < lines.Length; k++)
         {
             if (lines[k].Trim().StartsWith("part", StringComparison.OrdinalIgnoreCase))
             {
-                partIdx = k;
+                startLine = k + 1;
+                var partTok = lines[k].Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                if (partTok.Length == 1 && startLine < lines.Length) startLine++; // part number on its own line
+                if (startLine < lines.Length && lines[startLine].Trim().StartsWith("coordinates", StringComparison.OrdinalIgnoreCase))
+                    startLine++;
                 break;
             }
         }
 
-        if (partIdx >= 0)
-        {
-            // Gold layout: skip the 'part N' / 'coordinates' headers and
-            // read one value per line until we have nNodes or hit a
-            // non-numeric line.
-            int i = partIdx + 1;
-            // 'part' may or may not have the number on the same line; tolerate both.
-            var partTok = lines[partIdx].Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            if (partTok.Length == 1 && i < lines.Length) i++; // part number on its own line
-            if (i < lines.Length && lines[i].Trim().StartsWith("coordinates", StringComparison.OrdinalIgnoreCase)) i++;
-
-            var goldVals = new List<double>(nNodes);
-            while (i < lines.Length && goldVals.Count < nNodes)
-            {
-                if (double.TryParse(lines[i].Trim(), out var v)) { goldVals.Add(v); i++; }
-                else break;
-            }
-            return goldVals.ToArray();
-        }
-
-        // Ensight 6 / fallback: all whitespace-separated tokens are values,
-        // skipping the description line.
+        // Pull every numeric token from the body, regardless of layout
+        // (one value per line, six per line, Fortran-jammed columns where
+        // a negative sign is glued to the previous number).  The
+        // TokenizeFortranLine helper splits "1.23E+00-4.56E-01" cleanly,
+        // so a writer that uses Fortran fixed-width columns no longer
+        // loses every other value to a parse failure.
         var vals = new List<double>(nNodes);
-        for (int k = 1; k < lines.Length && vals.Count < nNodes; k++)
+        for (int k = startLine; k < lines.Length && vals.Count < nNodes; k++)
         {
-            var tokens = lines[k].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            foreach (var tok in tokens)
+            foreach (var tok in TokenizeFortranLine(lines[k]))
             {
                 if (vals.Count >= nNodes) break;
                 if (double.TryParse(tok, out var v)) vals.Add(v);
@@ -392,52 +381,59 @@ public static class EnsightParser
     {
         var lines = text.Split('\n');
 
-        int partIdx = -1;
+        // Locate the optional Gold-style 'part / N / coordinates' header
+        // and decide where to start tokenising.
+        int startLine = 1;
+        bool hasPart = false;
         for (int k = 1; k < lines.Length; k++)
         {
             if (lines[k].Trim().StartsWith("part", StringComparison.OrdinalIgnoreCase))
             {
-                partIdx = k;
+                hasPart = true;
+                startLine = k + 1;
+                var partTok = lines[k].Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                if (partTok.Length == 1 && startLine < lines.Length) startLine++;
+                if (startLine < lines.Length && lines[startLine].Trim().StartsWith("coordinates", StringComparison.OrdinalIgnoreCase))
+                    startLine++;
                 break;
             }
         }
 
         var result = new double[nNodes][];
 
-        if (partIdx >= 0)
-        {
-            int i = partIdx + 1;
-            var partTok = lines[partIdx].Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            if (partTok.Length == 1 && i < lines.Length) i++;
-            if (i < lines.Length && lines[i].Trim().StartsWith("coordinates", StringComparison.OrdinalIgnoreCase)) i++;
-
-            var vx = new double[nNodes];
-            var vy = new double[nNodes];
-            var vz = new double[nNodes];
-            for (int k = 0; k < nNodes && i < lines.Length; k++, i++)
-                vx[k] = double.TryParse(lines[i].Trim(), out var v) ? v : 0;
-            for (int k = 0; k < nNodes && i < lines.Length; k++, i++)
-                vy[k] = double.TryParse(lines[i].Trim(), out var v) ? v : 0;
-            for (int k = 0; k < nNodes && i < lines.Length; k++, i++)
-                vz[k] = double.TryParse(lines[i].Trim(), out var v) ? v : 0;
-
-            for (int k = 0; k < nNodes; k++)
-                result[k] = new[] { vx[k], vy[k], vz[k] };
-            return result;
-        }
-
-        // Ensight 6: tokenise the whole file (after the description) and
-        // pull (vx, vy, vz) triplets in order.
+        // Pull every numeric token from the body, regardless of layout.
+        // Token order matches Ensight: in Gold/per-axis the body is
+        // [vx_1..vx_N, vy_1..vy_N, vz_1..vz_N]; in Ensight 6 it's
+        // [vx_1, vy_1, vz_1, vx_2, ...].  We can't tell the two apart
+        // structurally, so the convention is the same as the existing
+        // code paths: Gold (with a `part` header) → per-axis triplets;
+        // Ensight 6 (no `part`) → interleaved.  TokenizeFortranLine
+        // splits Fortran-jammed columns so a writer that uses fixed-
+        // width columns no longer drops every other value.
         var allVals = new List<double>(3 * nNodes);
-        for (int k = 1; k < lines.Length && allVals.Count < 3 * nNodes; k++)
+        for (int k = startLine; k < lines.Length && allVals.Count < 3 * nNodes; k++)
         {
-            var tokens = lines[k].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            foreach (var tok in tokens)
+            foreach (var tok in TokenizeFortranLine(lines[k]))
             {
                 if (allVals.Count >= 3 * nNodes) break;
                 if (double.TryParse(tok, out var v)) allVals.Add(v);
             }
         }
+
+        if (hasPart)
+        {
+            // Per-axis triplets: vx[0..N), vy[0..N), vz[0..N).
+            for (int k = 0; k < nNodes; k++)
+            {
+                double vx = k < allVals.Count ? allVals[k] : 0;
+                double vy = nNodes + k < allVals.Count ? allVals[nNodes + k] : 0;
+                double vz = 2 * nNodes + k < allVals.Count ? allVals[2 * nNodes + k] : 0;
+                result[k] = new[] { vx, vy, vz };
+            }
+            return result;
+        }
+
+        // Ensight 6: interleaved (vx, vy, vz) per node.
         for (int k = 0; k < nNodes; k++)
         {
             int b = k * 3;

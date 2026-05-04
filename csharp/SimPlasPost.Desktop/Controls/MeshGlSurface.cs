@@ -293,8 +293,18 @@ public class MeshGlSurface : OpenGlControlBase
             isPerElement = field.IsPerElement;
             if (fv != null && fv.Length > 0)
             {
+                // Skip NaN / ±Inf so a single uninitialised node doesn't
+                // push the range to ±Inf and squash every real value to
+                // the dark-blue end of Turbo (see SceneBuilder for the
+                // matching PDF-export path).
                 fmin = double.MaxValue; fmax = double.MinValue;
-                foreach (double v in fv) { if (v < fmin) fmin = v; if (v > fmax) fmax = v; }
+                foreach (double v in fv)
+                {
+                    if (double.IsNaN(v) || double.IsInfinity(v)) continue;
+                    if (v < fmin) fmin = v;
+                    if (v > fmax) fmax = v;
+                }
+                if (fmin == double.MaxValue) { fmin = 0; fmax = 1; }
                 if (Math.Abs(fmax - fmin) < 1e-15) fmax = fmin + 1;
             }
         }
